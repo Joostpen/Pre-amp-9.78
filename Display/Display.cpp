@@ -1157,6 +1157,42 @@ static void drawSwitchSourceIcon(uint8_t inputIdx, int16_t cx, int16_t cy, int16
   }
 }
 
+static void drawSwitchSourceBadge(uint8_t inputIdx, const char* portStr, uint8_t badgeAlpha) {
+  int16_t nameTop = switchOverlayNameTop();
+  int16_t nameBottom = switchOverlayNameBottom();
+  int16_t nameH = nameBottom - nameTop;
+
+  const int16_t badgeW = 116;
+  int16_t badgeH = nameH + 18;
+  if (badgeH < 72) badgeH = 72;
+  if (badgeH > 86) badgeH = 86;
+
+  const int16_t badgeX = 28;
+  int16_t badgeY = nameBottom - badgeH;
+  int16_t badgeR = 14;
+
+  uint16_t badgeBorder = alpha565(dimC(scale565(governedMainAccent(), 54)), badgeAlpha);
+  uint16_t badgeFill = alpha565(dimC(scale565(C_CARD_BG, 140)), badgeAlpha);
+  uint16_t badgeRule = alpha565(dimC(scale565(governedMainAccent(), 22)), badgeAlpha);
+
+  display.fillRoundRect(badgeX, badgeY, badgeW, badgeH, badgeR, badgeFill);
+  display.drawRoundRect(badgeX, badgeY, badgeW, badgeH, badgeR, badgeBorder);
+  display.drawRoundRect(badgeX + 1, badgeY + 1, badgeW - 2, badgeH - 2, badgeR, badgeBorder);
+  display.fillRect(badgeX + 12, badgeY + 10, badgeW - 24, 1, badgeRule);
+  display.fillRect(badgeX + 12, badgeY + badgeH - 12, badgeW - 24, 1, badgeRule);
+
+  int16_t iconDiameter = nameH - 10;
+  if (iconDiameter < 28) iconDiameter = 28;
+  if (iconDiameter > 42) iconDiameter = 42;
+
+  int16_t iconCx = badgeX + badgeW / 2;
+  int16_t iconCy = badgeY + 16 + iconDiameter / 2;
+  int16_t labelBaseline = badgeY + badgeH - 18;
+
+  drawSwitchSourceIcon(inputIdx, iconCx, iconCy, iconDiameter, badgeBorder);
+  AAFont_drawString(AA_XXS, portStr, badgeX, labelBaseline, badgeBorder, badgeFill, AA_CENTER, badgeW);
+}
+
 void showSwitchingScreen(uint8_t inputIdx) {
   // Geen fillScreen — detail panel en rij 2 blijven staan.
   // Alleen de inputnaam-zone en volumezone worden gewist en herschreven.
@@ -1175,21 +1211,7 @@ void showSwitchingScreen(uint8_t inputIdx) {
   getPortStr(inputIdx, portStr);
   uint8_t badgeAlpha = switchBadgeAlpha();
   if (badgeAlpha > 0) {
-    uint16_t badgeCol = alpha565(dimC(scale565(governedMainAccent(), 58)), badgeAlpha);
-    int16_t nameTop = switchOverlayNameTop();
-    int16_t nameBottom = switchOverlayNameBottom();
-    int16_t nameH = nameBottom - nameTop;
-    int16_t iconDiameter = (nameH > 40) ? nameH : 40;
-    int16_t labelBaseline = nameBottom;
-    const int16_t labelVisualH = 12;
-    const int16_t iconLabelGap = 8;
-    int16_t iconCx = 96;
-    int16_t iconCy = labelBaseline - labelVisualH - iconLabelGap - iconDiameter / 2;
-    int16_t labelX = 28;
-    int16_t labelW = 136;
-
-    drawSwitchSourceIcon(inputIdx, iconCx, iconCy, iconDiameter, badgeCol);
-    AAFont_drawString(AA_XXS, portStr, labelX, labelBaseline, badgeCol, C_BG, AA_CENTER, labelW);
+    drawSwitchSourceBadge(inputIdx, portStr, badgeAlpha);
   }
 
   if (mainFontMode == FONT_MATRIX) {
