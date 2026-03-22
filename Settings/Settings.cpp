@@ -34,6 +34,9 @@ uint8_t encSensitivity    = 1;  // neutral default
 
 static bool     settingsDirty   = false;
 static uint32_t settingsDirtyMs = 0;
+static uint8_t  persistedCurrentInput = SETTINGS_DEFAULT.currentInput;
+static uint8_t  persistedCurrentVolume = SETTINGS_DEFAULT.currentVolume;
+static uint8_t  persistedSavedVolume[INPUT_COUNT] = {128, 128, 128, 128, 128};
 
 // ── CRC16-CCITT ───────────────────────────────────────────────────────────────
 static uint16_t crc16(const uint8_t* data, size_t len) {
@@ -61,12 +64,12 @@ static void globalsToStruct(Settings& s) {
   s.gainLFOUT          = gainLFOUT;
   s.gainMFOUT          = gainMFOUT;
   s.surroundInput      = surroundInput;
-  s.currentVolume      = currentVolume;
+  s.currentVolume      = persistedCurrentVolume;
   for (uint8_t i = 0; i < INPUT_COUNT; i++) s.startupVolume[i] = startupVolume[i];
   s.maxVolume          = maxVolume;
   s.balanceOffset      = balanceOffset;
-  s.currentInput       = currentInput;
-  for (uint8_t i = 0; i < INPUT_COUNT; i++) s.savedVolume[i] = savedVolume[i];
+  s.currentInput       = persistedCurrentInput;
+  for (uint8_t i = 0; i < INPUT_COUNT; i++) s.savedVolume[i] = persistedSavedVolume[i];
   s.dimDelaySec        = dimDelaySec;
   s.dimPercent         = dimPercent;
   s.deepDimDelayMin    = deepDimDelayMin;
@@ -111,7 +114,12 @@ static void structToGlobals(const Settings& s) {
   maxVolume          = constrain(s.maxVolume, 0, 255);
   balanceOffset      = constrain((int)s.balanceOffset, -(BALANCE_MAX + 1), BALANCE_MAX + 1);
   currentInput       = constrain(s.currentInput, 0, INPUT_COUNT - 1);
-  for (uint8_t i = 0; i < INPUT_COUNT; i++) savedVolume[i] = constrain((int)s.savedVolume[i], 0, (int)s.maxVolume);
+  persistedCurrentInput = currentInput;
+  persistedCurrentVolume = currentVolume;
+  for (uint8_t i = 0; i < INPUT_COUNT; i++) {
+    savedVolume[i] = constrain((int)s.savedVolume[i], 0, (int)s.maxVolume);
+    persistedSavedVolume[i] = savedVolume[i];
+  }
   dimDelaySec        = constrain(s.dimDelaySec,      10,  600);
   dimPercent         = constrain(s.dimPercent,         5,   95);
   deepDimDelayMin    = constrain(s.deepDimDelayMin,    1,   61);
@@ -139,6 +147,21 @@ static void structToGlobals(const Settings& s) {
     irAddressMap[i]  = s.irAddressMap[i];
     irCommandMap[i]  = s.irCommandMap[i];
   }
+
+  for (uint8_t i = 0; i < INPUT_COUNT; i++) {
+    uint8_t effectiveMax = (uint8_t)constrain((int)maxVolume - (int)inputOffset[i], VOL_MIN, VOL_MAX);
+    startupVolume[i] = constrain((int)startupVolume[i], 0, (int)effectiveMax);
+    if (i != surroundInput) {
+      savedVolume[i] = constrain((int)savedVolume[i], 0, (int)effectiveMax);
+    }
+    persistedSavedVolume[i] = savedVolume[i];
+  }
+
+  if (currentInput != surroundInput) {
+    uint8_t currentEffectiveMax = (uint8_t)constrain((int)maxVolume - (int)inputOffset[currentInput], VOL_MIN, VOL_MAX);
+    currentVolume = constrain((int)currentVolume, 0, (int)currentEffectiveMax);
+  }
+  persistedCurrentVolume = currentVolume;
 }
 
 // ── loadSettings ──────────────────────────────────────────────────────────────
@@ -176,6 +199,11 @@ void flushSettings() {
     settingsDirty = false;
   } else {
   }
+}
+
+void persistCurrentInputForStandby() {
+  persistedCurrentInput = currentInput;
+  flushSettings();
 }
 
 // ── saveSettings: markeert dirty, schrijft pas na debounce ───────────────────

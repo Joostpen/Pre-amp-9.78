@@ -45,6 +45,7 @@ enum IRActions : uint8_t {
 extern uint8_t  irProtocolMap[IR_ACTION_COUNT];
 extern uint16_t irAddressMap[IR_ACTION_COUNT];
 extern uint8_t  irCommandMap[IR_ACTION_COUNT];
+void resetIRMappingsToDefaults();
 
 // ── Repeat timing ───────────────────────────────────────────────────────────
 #define IR_REPEAT_DELAY_MS   400
