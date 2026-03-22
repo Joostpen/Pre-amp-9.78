@@ -1115,23 +1115,35 @@ static void clearMainNameArea() {
   display.fillRect(0, 36, SCREEN_W, 142, C_BG);
 }
 
-static void drawSwitchSourceIcon(uint8_t inputIdx) {
-  const bool isXLR = inputIdx < 3;
-  const int16_t cx = SCREEN_W / 2;
-  const int16_t cy = 76;
-  const uint16_t col = dimC(scale565(accent(), 72));
+static int16_t switchingNameWidth(const char* name) {
+  if (mainFontMode == FONT_MATRIX) return dotMatrixWidth(name, 9, 6);
+  if (mainFontMode == FONT_ORBITRON) return AAFont_stringWidthScaled(&Orbitron48AA, name, 20);
+  return AAFont_stringWidth(AA_MED, name);
+}
 
-  display.drawCircle(cx, cy, 26, col);
-  display.drawCircle(cx, cy, 25, col);
+static uint8_t switchBadgeAlpha() {
+  if (isInputSwitchPending() || switchOverlayUntilMs == 0) return 255;
+  uint32_t now = millis();
+  if (now >= switchOverlayUntilMs) return 0;
+  uint32_t remaining = switchOverlayUntilMs - now;
+  if (remaining >= 300UL) return 255;
+  return (uint8_t)((remaining * 255UL) / 300UL);
+}
+
+static void drawSwitchSourceIcon(uint8_t inputIdx, int16_t cx, int16_t cy, uint16_t col) {
+  const bool isXLR = inputIdx < 3;
+
+  display.drawCircle(cx, cy, 14, col);
+  display.drawCircle(cx, cy, 13, col);
 
   if (isXLR) {
-    display.fillCircle(cx,     cy - 8, 4, col);
-    display.fillCircle(cx - 8, cy + 7, 4, col);
-    display.fillCircle(cx + 8, cy + 7, 4, col);
+    display.fillCircle(cx,     cy - 4, 2, col);
+    display.fillCircle(cx - 4, cy + 4, 2, col);
+    display.fillCircle(cx + 4, cy + 4, 2, col);
   } else {
-    display.fillCircle(cx, cy, 5, col);
-    display.drawCircle(cx, cy, 12, col);
-    display.drawCircle(cx, cy, 13, col);
+    display.fillCircle(cx, cy, 3, col);
+    display.drawCircle(cx, cy, 7, col);
+    display.drawCircle(cx, cy, 8, col);
   }
 }
 
@@ -1141,12 +1153,37 @@ void showSwitchingScreen(uint8_t inputIdx) {
 
   // Inputnaam-zone: alleen de naamtekstband wissen (minder flicker)
   clearMainNameArea();
-  switchOverlayUntilMs = millis() + SWITCH_OVERLAY_MS;
+  uint32_t nowMs = millis();
+  if (isInputSwitchPending() || switchOverlayUntilMs == 0 || inputIdx != currentInput) {
+    switchOverlayUntilMs = nowMs + SWITCH_OVERLAY_MS;
+  }
+
+  uint8_t namePct = (uint8_t)(62 + 38U * (255U - mainCalmBlend) / 255U);
+  uint16_t nameColor = dimC(scale565(governedMainAccent(), namePct));
+  const char* targetName = inputNames[inputIdx];
+  int16_t nameW = switchingNameWidth(targetName);
+  int16_t nameLeft = (SCREEN_W - nameW) / 2;
 
   char portStr[10];
   getPortStr(inputIdx, portStr);
-  drawSwitchSourceIcon(inputIdx);
-  AAFont_drawString(AA_XS, portStr, 0, 144, dimC(C_GRAY_DIM), C_BG, AA_CENTER, SCREEN_W);
+  uint8_t badgeAlpha = switchBadgeAlpha();
+  if (badgeAlpha > 0) {
+    uint16_t badgeCol = alpha565(dimC(scale565(governedMainAccent(), 58)), badgeAlpha);
+    int16_t labelW = AAFont_stringWidth(AA_XXS, portStr);
+    int16_t labelX = nameLeft - 22 - labelW;
+    int16_t iconCx = labelX - 24;
+    drawSwitchSourceIcon(inputIdx, iconCx, 104, badgeCol);
+    AAFont_drawString(AA_XXS, portStr, labelX, 114, badgeCol, C_BG, AA_LEFT, labelW + 4);
+  }
+
+  if (mainFontMode == FONT_MATRIX) {
+    drawDotMatrixString(AA_MED, targetName, 0, 120 - MAIN_MATRIX_NAME_SHIFT_UP_PX,
+                        scale565(governedMainAccent(), namePct), AA_CENTER, SCREEN_W, 9, 3, 6);
+  } else if (mainFontMode == FONT_ORBITRON) {
+    AAFont_drawStringScaled(&Orbitron48AA, targetName, 0, 106, nameColor, C_BG, 20, AA_CENTER, SCREEN_W);
+  } else {
+    AAFont_drawString(AA_MED, targetName, 0, 106, nameColor, C_BG, AA_CENTER, SCREEN_W);
+  }
   drawMainHairline();
 
   // Volumezone: y=173..DP_TOP
@@ -1940,6 +1977,7 @@ static void restoreMainAfterInputOverlay() {
 
 void updateAfterInputSwitch() {
   // Houd na het fysieke schakelen nog even de gekozen poort-overlay zichtbaar.
+  switchOverlayUntilMs = 0;
   showSwitchingScreen(currentInput);
 }
 
@@ -4177,6 +4215,16 @@ void updateDisplay() {
       && (now - lastActivityMs) >= profileCalmAfterMs()
       && (now - lastActivityMs) < (uint32_t)dimDelaySec * 1000UL) {
     mainCalmMode = true;
+  }
+
+  if (currentScreen == SCR_MAIN && switchingInput && !isInputSwitchPending()
+      && switchOverlayUntilMs > 0 && now < switchOverlayUntilMs
+      && (switchOverlayUntilMs - now) <= 300UL) {
+    static uint32_t lastSwitchFadeMs = 0;
+    if ((now - lastSwitchFadeMs) >= 33) {
+      lastSwitchFadeMs = now;
+      showSwitchingScreen(currentInput);
+    }
   }
 
   if (currentScreen == SCR_MAIN && switchingInput && !isInputSwitchPending()
