@@ -1110,6 +1110,8 @@ void notifyTouch() {
   notifyActivity();
 }
 
+static inline int16_t dotMatrixWidth(const char* str, uint8_t pitch, uint8_t gap);
+
 static void clearMainNameArea() {
   // Ruime band: dekt ascenders/descenders en alle mogelijke inputnaamlengtes.
   display.fillRect(0, 36, SCREEN_W, 142, C_BG);
