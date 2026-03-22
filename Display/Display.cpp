@@ -3668,14 +3668,7 @@ static void updateIRLearnRows() {
 
 
 static void performIRResetAllCodes() {
-  for (uint8_t j = 0; j < IR_ACTION_COUNT; j++) {
-    irProtocolMap[j] = IR_PROTOCOL_ANY;
-    irAddressMap[j]  = IR_ADDRESS;
-    irCommandMap[j]  = ((const uint8_t[]){
-      IR_CMD_VOL_UP, IR_CMD_VOL_DOWN, IR_CMD_INPUT_UP, IR_CMD_INPUT_DOWN,
-      IR_CMD_BAL_LEFT, IR_CMD_BAL_RIGHT, IR_CMD_MUTE, IR_CMD_STANDBY
-    })[j];
-  }
+  resetIRMappingsToDefaults();
   irLearnArmed = false;
   flushSettings();
   drawIRLearnScreen();
