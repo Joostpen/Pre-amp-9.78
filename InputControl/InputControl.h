@@ -22,6 +22,7 @@ extern char inputNames[INPUT_COUNT][16];
 // Input functions
 void setInput(uint8_t input);
 void adjustInput(int delta);
+void selectInput(uint8_t input);
 void tickInputSwitch();      // Aanroepen vanuit hoofdloop — rondt wissel af na stilstand
 
 // Input-switch status voor UI overlays

@@ -342,7 +342,7 @@ void handleIR() {
     case IR_ACT_INPUT_5:
       if (!isRepeat && !inStandby) {
         uint8_t target = (uint8_t)(action - IR_ACT_INPUT_1);
-        if (target < INPUT_COUNT) setInput(target);
+        if (target < INPUT_COUNT) selectInput(target);
         irLastActionMs = now;
       }
       break;
