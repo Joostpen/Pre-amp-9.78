@@ -1034,7 +1034,7 @@ static inline bool detailPanelActive() {
 }
 
 static inline bool largeVolumeFontActive() {
-  return largeFontOnDim && !detailPanelActive() && !fadeActive;
+  return largeFontOnDim && !detailPanelActive();
 }
 // detailPanelSimple() verwijderd — alleen simpel panel bestaat nog
 static uint32_t balShowMs      = 0;      // Timestamp balance bar zichtbaar
