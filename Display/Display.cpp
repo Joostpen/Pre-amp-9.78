@@ -1032,6 +1032,10 @@ static bool detailPanelSuppressedByDim = false;  // Runtime suppressie bij auto-
 static inline bool detailPanelActive() {
   return detailMode > 0 && !detailPanelSuppressedByDim;
 }
+
+static inline bool largeVolumeFontActive() {
+  return largeFontOnDim && !detailPanelActive();
+}
 // detailPanelSimple() verwijderd — alleen simpel panel bestaat nog
 static uint32_t balShowMs      = 0;      // Timestamp balance bar zichtbaar
 #define BAL_VISIBLE_MS  3000             // Balance bar zichtbaar voor 3 sec
@@ -1387,7 +1391,7 @@ static void drawMainPrimaryValue() {
   // (mute toggle, bypass, volumesprong bij inputwissel).
   //
   // Schaal en positie op basis van fontIsLarge (binair, crossfade regelt de overgang).
-  const bool    useLarge = fontIsLarge && largeFontOnDim;
+  const bool    useLarge = fontIsLarge;
   const int16_t VAL_Y    = (useLarge ? 340 : 310) - MAIN_MATRIX_VALUE_SHIFT_UP_PX;
   const uint8_t scaleStd = useLarge ? 30 : 24;
   const uint8_t scaleOrb = useLarge ? 50 : 40;
@@ -1912,12 +1916,12 @@ void drawMainScreen() {
   currentScreen = SCR_MAIN;
   mainCalmMode  = false;
   mainCalmBlend = 0;
-  fontIsLarge  = false;
+  fontIsLarge  = largeVolumeFontActive();
   xfadeState   = XF_IDLE;
   volBlinkCount = 0;
   volBlinkOn    = true;
   volBlinkNeedsRestore = false;
-  panelBlend   = (detailMode > 0) ? 255 : 0;
+  panelBlend   = detailPanelActive() ? 255 : 0;
   if (inStandby) {
     if (screenBrightness == 0) {
       setScreenBrightness(activeBrightness());
@@ -3070,7 +3074,7 @@ static void drawThemeMotionScreen() {
   // Rij 3: Hue tune balk
   drawColorTuneRow(DS_ROW3_Y);
 
-  // Knoppen onderaan: Font | Detail color | Large font on dim
+  // Knoppen onderaan: Font | Detail color | Large font without panel
   const int16_t TN = 3;
   const int16_t tbw = menuBtnW(TN);
   const char* fnt_val = (mainFontMode == FONT_MATRIX)   ? "Matrix"
@@ -3083,7 +3087,7 @@ static void drawThemeMotionScreen() {
   drawMenuTogBtn(menuBtnX(1, tbw), MENU_BTN_Y, tbw, MENU_BTN_H,
                  "Detail color", det_val, detailColorFollow != SETTINGS_DEFAULT.detailColorFollow);
   drawMenuTogBtn(menuBtnX(2, tbw), MENU_BTN_Y, tbw, MENU_BTN_H,
-                 "Large on dim", lfd_val, largeFontOnDim != SETTINGS_DEFAULT.largeFontOnDim);
+                 "Large w/o panel", lfd_val, largeFontOnDim != SETTINGS_DEFAULT.largeFontOnDim);
 
   // Kleurpreview rechts van de knoppen — vervalt bij 3 knoppen (geen ruimte meer)
 
@@ -3668,14 +3672,7 @@ static void updateIRLearnRows() {
 
 
 static void performIRResetAllCodes() {
-  for (uint8_t j = 0; j < IR_ACTION_COUNT; j++) {
-    irProtocolMap[j] = IR_PROTOCOL_ANY;
-    irAddressMap[j]  = IR_ADDRESS;
-    irCommandMap[j]  = ((const uint8_t[]){
-      IR_CMD_VOL_UP, IR_CMD_VOL_DOWN, IR_CMD_INPUT_UP, IR_CMD_INPUT_DOWN,
-      IR_CMD_BAL_LEFT, IR_CMD_BAL_RIGHT, IR_CMD_MUTE, IR_CMD_STANDBY
-    })[j];
-  }
+  resetIRMappingsToDefaults();
   irLearnArmed = false;
   flushSettings();
   drawIRLearnScreen();
@@ -4084,7 +4081,7 @@ void updateDisplay() {
   if (currentScreen == SCR_BOOT) {
     // Static screen — nothing to update each frame
     if ((now - bootStartTime) >= BOOT_DURATION_MS) {
-      currentVolume = startupVolume[currentInput]; applyVolume();  // isMuted/relay al gezet door initControls()
+      currentVolume = savedVolume[currentInput]; applyVolume();  // Session-start volume = startup baseline
       currentScreen = SCR_MAIN; lastActivityMs = millis(); drawMainScreen();
     }
     return;
@@ -4196,10 +4193,8 @@ void updateDisplay() {
       && (now - lastBlendAnimMs) >= 20) {
     lastBlendAnimMs = now;
 
-    bool suppress    = detailPanelSuppressedByDim;
-    bool wantLarge   = suppress && largeFontOnDim && !fadeActive;
-    // Bij wake of largeFontOnDim uit: altijd klein
-    if (!suppress || !largeFontOnDim) wantLarge = false;
+    bool panelHidden = !detailPanelActive();
+    bool wantLarge   = largeVolumeFontActive();
 
     // Trigger crossfade als gewenste staat verschilt van huidige en we niet al faden
     if (wantLarge != fontIsLarge && xfadeState == XF_IDLE) {
@@ -4248,7 +4243,7 @@ void updateDisplay() {
     // Panelblend ook bijhouden als er geen crossfade loopt maar panel
     // aan/uit gaat zonder fontwissel (detailMode toggle, wake zonder fontchange)
     if (xfadeState == XF_IDLE) {
-      uint8_t pbTarget = suppress ? 0 : (detailMode > 0 ? 255 : 0);
+      uint8_t pbTarget = panelHidden ? 0 : 255;
       if (panelBlend != pbTarget) {
         uint8_t step = blendAnimStep(panelBlend, pbTarget);
         if (panelBlend < pbTarget) {
