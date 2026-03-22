@@ -1115,81 +1115,11 @@ static void clearMainNameArea() {
   display.fillRect(0, 36, SCREEN_W, 142, C_BG);
 }
 
-static uint8_t switchBadgeAlpha() {
-  if (isInputSwitchPending() || switchOverlayUntilMs == 0) return 255;
-  uint32_t now = millis();
-  if (now >= switchOverlayUntilMs) return 0;
-  uint32_t remaining = switchOverlayUntilMs - now;
-  if (remaining >= 300UL) return 255;
-  return (uint8_t)((remaining * 255UL) / 300UL);
-}
-
-static int16_t switchOverlayNameTop() {
-  if (mainFontMode == FONT_MATRIX) return (120 - MAIN_MATRIX_NAME_SHIFT_UP_PX) - (6 * 9) - 3;
-  return 58;
-}
-
-static int16_t switchOverlayNameBottom() {
-  if (mainFontMode == FONT_MATRIX) return (120 - MAIN_MATRIX_NAME_SHIFT_UP_PX) + 3;
-  return 116;
-}
-
-static void drawSwitchSourceIcon(uint8_t inputIdx, int16_t cx, int16_t cy, int16_t diameter, uint16_t col) {
-  const bool isXLR = inputIdx < 3;
-  int16_t r = diameter / 2;
-  if (r < 10) r = 10;
-
-  display.drawCircle(cx, cy, r, col);
-  display.drawCircle(cx, cy, r - 1, col);
-
-  if (isXLR) {
-    int16_t pinOffset = (r * 4) / 11;
-    int16_t pinR = ((r / 7) > 2) ? (r / 7) : 2;
-    display.fillCircle(cx,             cy - pinOffset, pinR, col);
-    display.fillCircle(cx - pinOffset, cy + pinOffset, pinR, col);
-    display.fillCircle(cx + pinOffset, cy + pinOffset, pinR, col);
-  } else {
-    int16_t coreR = ((r / 5) > 3) ? (r / 5) : 3;
-    int16_t ringR = ((r / 2) > (coreR + 3)) ? (r / 2) : (coreR + 3);
-    display.fillCircle(cx, cy, coreR, col);
-    display.drawCircle(cx, cy, ringR, col);
-    if (ringR + 1 < r) display.drawCircle(cx, cy, ringR + 1, col);
-  }
-}
-
-static void getSwitchSourceShortLabel(uint8_t inputIdx, char* buf, size_t bufSize) {
-  uint8_t n = (inputIdx < 3) ? (inputIdx + 1) : (inputIdx - 2);
-  snprintf(buf, bufSize, "%u", (unsigned)n);
-}
-
-static void drawSwitchSourceMarker(uint8_t inputIdx, uint8_t badgeAlpha) {
-  int16_t nameTop = switchOverlayNameTop();
-  int16_t nameBottom = switchOverlayNameBottom();
-  int16_t nameH = nameBottom - nameTop;
-
-  uint16_t markerCol = alpha565(dimC(scale565(governedMainAccent(), 54)), badgeAlpha);
-  int16_t iconDiameter = nameH - 18;
-  if (iconDiameter < 24) iconDiameter = 24;
-  if (iconDiameter > 34) iconDiameter = 34;
-
-  const int16_t iconCx = 84;
-  const int16_t labelW = 40;
-  const int16_t labelX = iconCx - labelW / 2;
-  const int16_t labelBaseline = nameBottom - 2;
-  const int16_t iconCy = labelBaseline - 14 - iconDiameter / 2;
-
-  char shortLabel[4];
-  getSwitchSourceShortLabel(inputIdx, shortLabel, sizeof(shortLabel));
-
-  drawSwitchSourceIcon(inputIdx, iconCx, iconCy, iconDiameter, markerCol);
-  AAFont_drawString(AA_XXS, shortLabel, labelX, labelBaseline, markerCol, C_BG, AA_CENTER, labelW);
-}
 
 void showSwitchingScreen(uint8_t inputIdx) {
   // Geen fillScreen — detail panel en rij 2 blijven staan.
   // Alleen de inputnaam-zone en volumezone worden gewist en herschreven.
 
-  // Inputnaam-zone: alleen de naamtekstband wissen (minder flicker)
   clearMainNameArea();
   uint32_t nowMs = millis();
   if (isInputSwitchPending() || switchOverlayUntilMs == 0 || inputIdx != currentInput) {
@@ -1199,10 +1129,6 @@ void showSwitchingScreen(uint8_t inputIdx) {
   uint8_t namePct = (uint8_t)(62 + 38U * (255U - mainCalmBlend) / 255U);
   uint16_t nameColor = dimC(scale565(governedMainAccent(), namePct));
   const char* targetName = inputNames[inputIdx];
-  uint8_t badgeAlpha = switchBadgeAlpha();
-  if (badgeAlpha > 0) {
-    drawSwitchSourceMarker(inputIdx, badgeAlpha);
-  }
 
   if (mainFontMode == FONT_MATRIX) {
     drawDotMatrixString(AA_MED, targetName, 0, 120 - MAIN_MATRIX_NAME_SHIFT_UP_PX,
@@ -1214,7 +1140,6 @@ void showSwitchingScreen(uint8_t inputIdx) {
   }
   drawMainHairline();
 
-  // Volumezone direct herstellen — de marker is alleen informatief.
   clearPrimaryValueZone();
   drawMainPrimaryValue();
 }
