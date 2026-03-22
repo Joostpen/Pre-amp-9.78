@@ -1157,40 +1157,32 @@ static void drawSwitchSourceIcon(uint8_t inputIdx, int16_t cx, int16_t cy, int16
   }
 }
 
-static void drawSwitchSourceBadge(uint8_t inputIdx, const char* portStr, uint8_t badgeAlpha) {
+static void getSwitchSourceShortLabel(uint8_t inputIdx, char* buf, size_t bufSize) {
+  uint8_t n = (inputIdx < 3) ? (inputIdx + 1) : (inputIdx - 2);
+  snprintf(buf, bufSize, "%u", (unsigned)n);
+}
+
+static void drawSwitchSourceMarker(uint8_t inputIdx, uint8_t badgeAlpha) {
   int16_t nameTop = switchOverlayNameTop();
   int16_t nameBottom = switchOverlayNameBottom();
   int16_t nameH = nameBottom - nameTop;
 
-  const int16_t badgeW = 116;
-  int16_t badgeH = nameH + 18;
-  if (badgeH < 72) badgeH = 72;
-  if (badgeH > 86) badgeH = 86;
+  uint16_t markerCol = alpha565(dimC(scale565(governedMainAccent(), 54)), badgeAlpha);
+  int16_t iconDiameter = nameH - 18;
+  if (iconDiameter < 24) iconDiameter = 24;
+  if (iconDiameter > 34) iconDiameter = 34;
 
-  const int16_t badgeX = 28;
-  int16_t badgeY = nameBottom - badgeH;
-  int16_t badgeR = 14;
+  const int16_t iconCx = 84;
+  const int16_t labelW = 40;
+  const int16_t labelX = iconCx - labelW / 2;
+  const int16_t labelBaseline = nameBottom - 2;
+  const int16_t iconCy = labelBaseline - 14 - iconDiameter / 2;
 
-  uint16_t badgeBorder = alpha565(dimC(scale565(governedMainAccent(), 54)), badgeAlpha);
-  uint16_t badgeFill = alpha565(dimC(scale565(C_CARD_BG, 140)), badgeAlpha);
-  uint16_t badgeRule = alpha565(dimC(scale565(governedMainAccent(), 22)), badgeAlpha);
+  char shortLabel[4];
+  getSwitchSourceShortLabel(inputIdx, shortLabel, sizeof(shortLabel));
 
-  display.fillRoundRect(badgeX, badgeY, badgeW, badgeH, badgeR, badgeFill);
-  display.drawRoundRect(badgeX, badgeY, badgeW, badgeH, badgeR, badgeBorder);
-  display.drawRoundRect(badgeX + 1, badgeY + 1, badgeW - 2, badgeH - 2, badgeR, badgeBorder);
-  display.fillRect(badgeX + 12, badgeY + 10, badgeW - 24, 1, badgeRule);
-  display.fillRect(badgeX + 12, badgeY + badgeH - 12, badgeW - 24, 1, badgeRule);
-
-  int16_t iconDiameter = nameH - 10;
-  if (iconDiameter < 28) iconDiameter = 28;
-  if (iconDiameter > 42) iconDiameter = 42;
-
-  int16_t iconCx = badgeX + badgeW / 2;
-  int16_t iconCy = badgeY + 16 + iconDiameter / 2;
-  int16_t labelBaseline = badgeY + badgeH - 18;
-
-  drawSwitchSourceIcon(inputIdx, iconCx, iconCy, iconDiameter, badgeBorder);
-  AAFont_drawString(AA_XXS, portStr, badgeX, labelBaseline, badgeBorder, badgeFill, AA_CENTER, badgeW);
+  drawSwitchSourceIcon(inputIdx, iconCx, iconCy, iconDiameter, markerCol);
+  AAFont_drawString(AA_XXS, shortLabel, labelX, labelBaseline, markerCol, C_BG, AA_CENTER, labelW);
 }
 
 void showSwitchingScreen(uint8_t inputIdx) {
@@ -1207,11 +1199,9 @@ void showSwitchingScreen(uint8_t inputIdx) {
   uint8_t namePct = (uint8_t)(62 + 38U * (255U - mainCalmBlend) / 255U);
   uint16_t nameColor = dimC(scale565(governedMainAccent(), namePct));
   const char* targetName = inputNames[inputIdx];
-  char portStr[10];
-  getPortStr(inputIdx, portStr);
   uint8_t badgeAlpha = switchBadgeAlpha();
   if (badgeAlpha > 0) {
-    drawSwitchSourceBadge(inputIdx, portStr, badgeAlpha);
+    drawSwitchSourceMarker(inputIdx, badgeAlpha);
   }
 
   if (mainFontMode == FONT_MATRIX) {
@@ -1224,9 +1214,9 @@ void showSwitchingScreen(uint8_t inputIdx) {
   }
   drawMainHairline();
 
-  // Volumezone: y=173..DP_TOP
-  display.fillRect(0, 173, SCREEN_W, DP_TOP - 173, C_BG);
-  AAFont_drawStringScaled(AA_VOL, "\xe2\x80\x94", 0, 300, dimC(C_GRAY_DIM), C_BG, 24, AA_CENTER, SCREEN_W);
+  // Volumezone direct herstellen — de marker is alleen informatief.
+  clearPrimaryValueZone();
+  drawMainPrimaryValue();
 }
 
 
