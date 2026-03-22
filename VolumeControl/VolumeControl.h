@@ -17,6 +17,7 @@ extern bool isMuted;
 void setVolume(uint8_t left, uint8_t right);
 void applyVolume();
 void adjustVolume(int delta);
+uint8_t effectiveMaxForInput(uint8_t input);
 
 // Balance functions
 void adjustBalanceLeft(bool isRepeat = false);

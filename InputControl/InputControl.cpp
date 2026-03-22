@@ -52,7 +52,9 @@ void setInput(uint8_t input) {
 
 void resetSessionInputVolumes() {
   for (uint8_t i = 0; i < INPUT_COUNT; i++) {
-    savedVolume[i] = (i == surroundInput) ? 231 : startupVolume[i];
+    savedVolume[i] = (i == surroundInput)
+                   ? 231
+                   : (uint8_t)min((int)startupVolume[i], (int)effectiveMaxForInput(i));
   }
 }
 
@@ -127,7 +129,8 @@ void tickInputSwitch() {
   if (currentInput == surroundInput) {
     currentVolume = 231;
   } else {
-    currentVolume = savedVolume[currentInput];
+    currentVolume = (uint8_t)min((int)savedVolume[currentInput],
+                                 (int)effectiveMaxForInput(currentInput));
   }
   applyVolume();
 
