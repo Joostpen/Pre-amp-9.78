@@ -1,0 +1,22 @@
+/*
+ * IR_Remote.h - IR Remote Control Definitions
+ * RC5 Protocol, Address 0x10
+ */
+
+#ifndef IR_REMOTE_H
+#define IR_REMOTE_H
+
+// IR Remote Control (RC5 protocol, Address 0x10)
+#define IR_ADDRESS        0x10
+
+// IR Commands
+#define IR_CMD_STANDBY    0x0C  // Standby toggle (non-repeatable)
+#define IR_CMD_MUTE       0x0D  // Mute toggle (non-repeatable)
+#define IR_CMD_VOL_UP     0x10  // Volume up (repeatable)
+#define IR_CMD_VOL_DOWN   0x11  // Volume down (repeatable)
+#define IR_CMD_INPUT_UP   0x3F  // Input up (non-repeatable)
+#define IR_CMD_INPUT_DOWN 0x3E  // Input down (non-repeatable)
+#define IR_CMD_BAL_LEFT   0x1B  // Balance left (lower left channel)
+#define IR_CMD_BAL_RIGHT  0x1A  // Balance right (lower right channel)
+
+#endif

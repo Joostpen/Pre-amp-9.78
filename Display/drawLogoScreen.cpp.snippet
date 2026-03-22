@@ -1,0 +1,146 @@
+// ════════════════════════════════════════════════════════════════════════════
+//  Boot/Warmup scherm — vervangt bitmap drawLogoScreen()
+//  Verwijder: #include "boot_bitmap.h" uit Display.cpp
+//  Voeg toe:  #include "phi_logo_gray.h" (als nog niet aanwezig)
+//             #include <math.h> (als nog niet aanwezig)
+// ════════════════════════════════════════════════════════════════════════════
+
+// Interne helper: grijswaarde 0-255 naar RGB565
+static inline uint16_t grayRGB565(uint8_t lv) {
+    return ((uint16_t)(lv >> 3) << 11) | ((uint16_t)(lv >> 2) << 5) | (lv >> 3);
+}
+
+// Logo schalen 320→destSz via nearest-neighbor, zwarte pixels skippen
+static void drawPhiLogo(int16_t destX, int16_t destY, int16_t destSz) {
+    const int16_t SRC = PHI_LOGO_GRAY_W;  // 320
+    display.startWrite();
+    for (int16_t dy = 0; dy < destSz; dy++) {
+        int16_t sy = (int32_t)dy * SRC / destSz;
+        for (int16_t dx = 0; dx < destSz; dx++) {
+            int16_t  sx = (int32_t)dx * SRC / destSz;
+            uint16_t px = pgm_read_word(&PHI_LOGO_GRAY[(uint32_t)sy * SRC + sx]);
+            if (px == 0x0000) continue;
+            display.drawPixel(destX + dx, destY + dy, px);
+        }
+    }
+    display.endWrite();
+}
+
+static void drawLogoScreen(const char* subText) {
+    // ── Layout constanten ────────────────────────────────────────────────────
+    static const int16_t SCR_W     = SCREEN_W;   // 800
+    static const int16_t SCR_H     = SCREEN_H;   // 480
+    static const int16_t LCX       = SCR_W / 2;  // 400
+
+    static const int16_t LOGO_SZ   = 118;
+    static const int16_t LOGO_CY   = 142;
+    static const int16_t LOGO_X    = LCX - LOGO_SZ / 2;       // 341
+    static const int16_t LOGO_Y    = LOGO_CY - LOGO_SZ / 2;   // 83
+
+    static const int16_t ORB_YADV  = 60;   // Orbitron48AA yAdvance
+    static const int16_t TXT_BASE  = LOGO_CY + LOGO_SZ / 2 + 30 + ORB_YADV;  // 291
+    static const int16_t HL_Y      = TXT_BASE + 12;   // 303
+    static const int16_t HL_HALF   = 195;              // 390 px breed / 2
+
+    static const uint8_t  SUB_SCALE = 9;              // 9/16 ≈ 0.5625x
+    static const int16_t  SUB_BASE  = HL_Y + 9 + (int16_t)(ORB_YADV * SUB_SCALE / 16);  // 345
+
+    static const uint8_t  STAT_SCALE = 5;             // 5/16 ≈ 0.3125x
+    static const int16_t  STAT_X     = SCR_W - 36;
+    static const int16_t  STAT_BASE  = SCR_H - 28;
+
+    static const int16_t  WAVE_Y    = 400;
+    static const int16_t  WAVE_AMP  = 13;
+    static const int16_t  FILL_TOP  = 195;
+    static const int16_t  FADE_W    = 170;
+    static const int16_t  FILL_RANGE = WAVE_Y - FILL_TOP;  // 205
+
+    static const int16_t  VIG_H    = 55;   // vignette hoogte boven en onder
+
+    display.startBuffering();
+    display.fillScreen(C_BG);
+
+    // ── 1. Sinusoïde fill (per kolom) ───────────────────────────────────────
+    display.startWrite();
+    for (int16_t x = 0; x < SCR_W; x++) {
+        // Horizontale envelope — lineaire ramp binnen FADE_W
+        int16_t edge = x < FADE_W ? x : (x > SCR_W - 1 - FADE_W ? SCR_W - 1 - x : FADE_W);
+        uint8_t env_h = (edge >= FADE_W) ? 255 : (uint8_t)((uint32_t)edge * 255 / FADE_W);
+        if (env_h == 0) continue;
+
+        // Wave y voor dit pixel
+        int16_t wave_y = WAVE_Y + (int16_t)(sinf(x * 0.016f) * WAVE_AMP);
+        int16_t bottom = (wave_y < SCR_H - 1) ? wave_y : SCR_H - 2;
+
+        // Fill pixels van FILL_TOP tot wave_y
+        for (int16_t y = FILL_TOP; y <= bottom; y++) {
+            uint32_t dy      = (uint32_t)(y - FILL_TOP);
+            uint32_t alpha_v = dy * 185 / FILL_RANGE;         // 0..185
+            uint8_t  lv      = (uint8_t)(alpha_v * env_h / 255);
+            if (lv == 0) continue;
+            display.drawPixel(x, y, grayRGB565(lv));
+        }
+
+        // Golf lijn — 2 px dik
+        uint8_t  wlv = (uint8_t)((uint32_t)215 * env_h / 255);
+        uint16_t wcol = grayRGB565(wlv);
+        if (wave_y >= 0 && wave_y < SCR_H)     display.drawPixel(x, wave_y,     wcol);
+        if (wave_y + 1 >= 0 && wave_y + 1 < SCR_H) display.drawPixel(x, wave_y + 1, wcol);
+    }
+    display.endWrite();
+
+    // ── 2. Vignette top — voor logo, trekt fill naar zwart ─────────────────
+    for (int16_t y = 0; y < VIG_H; y++) {
+        uint32_t t  = (uint32_t)(VIG_H - y) * 255 / VIG_H;
+        uint8_t  lv = (uint8_t)(t * t / 255);  // kwadratisch
+        display.drawFastHLine(0, y, SCR_W, grayRGB565(lv >> 1));
+        // Trek naar zwart: fillRect met zwart @ opacity lv
+        // Eenvoudigst: overschrijf met zwart voor hoge alpha waarden bovenaan
+        if (lv > 200) display.drawFastHLine(0, y, SCR_W, C_BG);
+    }
+
+    // ── 3. Vignette bottom — na wave zone, eenvoudig zwart ─────────────────
+    // Wave fill reikt tot max y≈413, vignette start op 425 — geen overlap
+    display.fillRect(0, SCR_H - VIG_H, SCR_W, VIG_H, C_BG);
+
+    // ── 4. Logo ─────────────────────────────────────────────────────────────
+    drawPhiLogo(LOGO_X, LOGO_Y, LOGO_SZ);
+
+    // ── 5. "PHI REFERENCE" — Orbitron48 @1:1, gecentreerd ──────────────────
+    {
+        int16_t  tw = AAFont_stringWidthScaled(&Orbitron48AA, "PHI REFERENCE", 16);
+        int16_t  tx = LCX - tw / 2;
+        AAFont_drawStringScaled(&Orbitron48AA, "PHI REFERENCE",
+                                tx, TXT_BASE,
+                                0xBEF7u,  // #bfbfbf in RGB565
+                                C_BG, 16);
+    }
+
+    // ── 6. Hairline ─────────────────────────────────────────────────────────
+    display.drawFastHLine(LCX - HL_HALF, HL_Y, HL_HALF * 2, 0x2945u);  // dim grijs
+
+    // ── 7. "PRE-10" — Orbitron48 @9/16, gecentreerd ────────────────────────
+    {
+        int16_t  tw = AAFont_stringWidthScaled(&Orbitron48AA, "PRE-10", SUB_SCALE);
+        int16_t  tx = LCX - tw / 2;
+        AAFont_drawStringScaled(&Orbitron48AA, "PRE-10",
+                                tx, SUB_BASE,
+                                0x8C71u,  // #909090 gedim
+                                C_BG, SUB_SCALE);
+    }
+
+    // ── 8. Status rechtsonder ("Initializing" / "Warming up") ──────────────
+    {
+        int16_t  tw = AAFont_stringWidthScaled(&Orbitron48AA, subText, STAT_SCALE);
+        int16_t  tx = STAT_X - tw;
+        AAFont_drawStringScaled(&Orbitron48AA, subText,
+                                tx, STAT_BASE,
+                                0x39C7u,  // zeer gedim grijs
+                                C_BG, STAT_SCALE);
+    }
+
+    display.endBuffering();
+}
+
+static void drawBootScreen()   { drawLogoScreen("Initializing"); }
+static void drawWarmupScreen() { drawLogoScreen("Warming up");   }
