@@ -1110,17 +1110,9 @@ void notifyTouch() {
   notifyActivity();
 }
 
-static inline int16_t dotMatrixWidth(const char* str, uint8_t pitch, uint8_t gap);
-
 static void clearMainNameArea() {
   // Ruime band: dekt ascenders/descenders en alle mogelijke inputnaamlengtes.
   display.fillRect(0, 36, SCREEN_W, 142, C_BG);
-}
-
-static int16_t switchingNameWidth(const char* name) {
-  if (mainFontMode == FONT_MATRIX) return dotMatrixWidth(name, 9, 6);
-  if (mainFontMode == FONT_ORBITRON) return AAFont_stringWidthScaled(&Orbitron48AA, name, 20);
-  return AAFont_stringWidth(AA_MED, name);
 }
 
 static uint8_t switchBadgeAlpha() {
@@ -1132,20 +1124,36 @@ static uint8_t switchBadgeAlpha() {
   return (uint8_t)((remaining * 255UL) / 300UL);
 }
 
-static void drawSwitchSourceIcon(uint8_t inputIdx, int16_t cx, int16_t cy, uint16_t col) {
-  const bool isXLR = inputIdx < 3;
+static int16_t switchOverlayNameTop() {
+  if (mainFontMode == FONT_MATRIX) return (120 - MAIN_MATRIX_NAME_SHIFT_UP_PX) - (6 * 9) - 3;
+  return 58;
+}
 
-  display.drawCircle(cx, cy, 14, col);
-  display.drawCircle(cx, cy, 13, col);
+static int16_t switchOverlayNameBottom() {
+  if (mainFontMode == FONT_MATRIX) return (120 - MAIN_MATRIX_NAME_SHIFT_UP_PX) + 3;
+  return 116;
+}
+
+static void drawSwitchSourceIcon(uint8_t inputIdx, int16_t cx, int16_t cy, int16_t diameter, uint16_t col) {
+  const bool isXLR = inputIdx < 3;
+  int16_t r = diameter / 2;
+  if (r < 10) r = 10;
+
+  display.drawCircle(cx, cy, r, col);
+  display.drawCircle(cx, cy, r - 1, col);
 
   if (isXLR) {
-    display.fillCircle(cx,     cy - 4, 2, col);
-    display.fillCircle(cx - 4, cy + 4, 2, col);
-    display.fillCircle(cx + 4, cy + 4, 2, col);
+    int16_t pinOffset = (r * 4) / 11;
+    int16_t pinR = ((r / 7) > 2) ? (r / 7) : 2;
+    display.fillCircle(cx,             cy - pinOffset, pinR, col);
+    display.fillCircle(cx - pinOffset, cy + pinOffset, pinR, col);
+    display.fillCircle(cx + pinOffset, cy + pinOffset, pinR, col);
   } else {
-    display.fillCircle(cx, cy, 3, col);
-    display.drawCircle(cx, cy, 7, col);
-    display.drawCircle(cx, cy, 8, col);
+    int16_t coreR = ((r / 5) > 3) ? (r / 5) : 3;
+    int16_t ringR = ((r / 2) > (coreR + 3)) ? (r / 2) : (coreR + 3);
+    display.fillCircle(cx, cy, coreR, col);
+    display.drawCircle(cx, cy, ringR, col);
+    if (ringR + 1 < r) display.drawCircle(cx, cy, ringR + 1, col);
   }
 }
 
@@ -1163,19 +1171,25 @@ void showSwitchingScreen(uint8_t inputIdx) {
   uint8_t namePct = (uint8_t)(62 + 38U * (255U - mainCalmBlend) / 255U);
   uint16_t nameColor = dimC(scale565(governedMainAccent(), namePct));
   const char* targetName = inputNames[inputIdx];
-  int16_t nameW = switchingNameWidth(targetName);
-  int16_t nameLeft = (SCREEN_W - nameW) / 2;
-
   char portStr[10];
   getPortStr(inputIdx, portStr);
   uint8_t badgeAlpha = switchBadgeAlpha();
   if (badgeAlpha > 0) {
     uint16_t badgeCol = alpha565(dimC(scale565(governedMainAccent(), 58)), badgeAlpha);
-    int16_t labelW = AAFont_stringWidth(AA_XXS, portStr);
-    int16_t labelX = nameLeft - 22 - labelW;
-    int16_t iconCx = labelX - 24;
-    drawSwitchSourceIcon(inputIdx, iconCx, 104, badgeCol);
-    AAFont_drawString(AA_XXS, portStr, labelX, 114, badgeCol, C_BG, AA_LEFT, labelW + 4);
+    int16_t nameTop = switchOverlayNameTop();
+    int16_t nameBottom = switchOverlayNameBottom();
+    int16_t nameH = nameBottom - nameTop;
+    int16_t iconDiameter = (nameH > 40) ? nameH : 40;
+    int16_t labelBaseline = nameBottom;
+    const int16_t labelVisualH = 12;
+    const int16_t iconLabelGap = 8;
+    int16_t iconCx = 96;
+    int16_t iconCy = labelBaseline - labelVisualH - iconLabelGap - iconDiameter / 2;
+    int16_t labelX = 28;
+    int16_t labelW = 136;
+
+    drawSwitchSourceIcon(inputIdx, iconCx, iconCy, iconDiameter, badgeCol);
+    AAFont_drawString(AA_XXS, portStr, labelX, labelBaseline, badgeCol, C_BG, AA_CENTER, labelW);
   }
 
   if (mainFontMode == FONT_MATRIX) {
