@@ -50,12 +50,41 @@ void setInput(uint8_t input) {
   writeRegister(I2C_ADDR_CONTROL, GPIOA, gpa);
 }
 
+void resetSessionInputVolumes() {
+  for (uint8_t i = 0; i < INPUT_COUNT; i++) {
+    savedVolume[i] = (i == surroundInput) ? 231 : startupVolume[i];
+  }
+}
+
 // ── Debounce state ─────────────────────────────────────────────────────────
 #define INPUT_SETTLE_MS   400    // Wachttijd na laatste draai
 
 static bool     switchPending = false;
 static uint8_t  pendingInput  = 0;
 static uint32_t lastAdjustMs  = 0;
+
+static void queueInputSwitch(uint8_t targetInput) {
+  uint8_t base = switchPending ? pendingInput : currentInput;
+  if (targetInput >= INPUT_COUNT || targetInput == base) return;
+
+  pendingInput = targetInput;
+  lastAdjustMs = millis();
+
+  if (!switchPending) {
+    // Eerste wijziging: mute aan, scherm in wissel-modus
+    switchPending = true;
+    setSwitchingInput(true);
+    savedVolume[currentInput] = currentVolume;
+    muteRelay(true);
+  }
+
+  // Activiteit verlengen zonder onnodige full-wake/redraw.
+  notifyActivityNoWake();
+
+  // Toon target-invoer, maar schakel hardware nog NIET.
+  // Pas schakelen na encoder-stilstand voorkomt onnodige tussenstappen.
+  showSwitchingScreen(inputNames[pendingInput]);
+}
 
 bool isInputSwitchPending() {
   return switchPending;
@@ -75,25 +104,12 @@ void adjustInput(int delta) {
   // Optelbaar doordraaien: gebruik pendingInput als basis
   uint8_t base = switchPending ? pendingInput : currentInput;
   int newInput = constrain((int)base + delta, 0, INPUT_COUNT - 1);
-  if (newInput == (int)base) return;
+  queueInputSwitch((uint8_t)newInput);
+}
 
-  pendingInput = (uint8_t)newInput;
-  lastAdjustMs = millis();
-
-  if (!switchPending) {
-    // Eerste draai: mute aan, scherm in wissel-modus
-    switchPending = true;
-    setSwitchingInput(true);
-    savedVolume[currentInput] = currentVolume;
-    muteRelay(true);
-  }
-
-  // Activiteit verlengen zonder onnodige full-wake/redraw.
-  notifyActivityNoWake();
-
-  // Toon target-invoer, maar schakel hardware nog NIET.
-  // Pas schakelen na encoder-stilstand voorkomt onnodige tussenstappen.
-  showSwitchingScreen(inputNames[pendingInput]);
+void selectInput(uint8_t input) {
+  if (inStandby) return;
+  queueInputSwitch(input);
 }
 
 // ── tickInputSwitch ─────────────────────────────────────────────────────────
@@ -111,7 +127,7 @@ void tickInputSwitch() {
   if (currentInput == surroundInput) {
     currentVolume = 231;
   } else {
-    currentVolume = startupVolume[currentInput];
+    currentVolume = savedVolume[currentInput];
   }
   applyVolume();
 
@@ -125,5 +141,3 @@ void tickInputSwitch() {
   switchPending = false;
 
 }
-
-

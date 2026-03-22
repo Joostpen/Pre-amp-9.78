@@ -4084,7 +4084,7 @@ void updateDisplay() {
   if (currentScreen == SCR_BOOT) {
     // Static screen — nothing to update each frame
     if ((now - bootStartTime) >= BOOT_DURATION_MS) {
-      currentVolume = startupVolume[currentInput]; applyVolume();  // isMuted/relay al gezet door initControls()
+      currentVolume = savedVolume[currentInput]; applyVolume();  // Session-start volume = startup baseline
       currentScreen = SCR_MAIN; lastActivityMs = millis(); drawMainScreen();
     }
     return;

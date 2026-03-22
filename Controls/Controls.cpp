@@ -190,7 +190,8 @@ void toggleStandby() {
   digitalWrite(PIN_STANDBY_OFF, HIGH);
   standbyExitTime    = millis();
   remoteTriggerFired = false;
-  currentVolume = (currentInput == surroundInput) ? 231 : startupVolume[currentInput];
+  resetSessionInputVolumes();
+  currentVolume = savedVolume[currentInput];
   isMuted = muteOnStartup;
 
   if (enteredWarmStandby) {

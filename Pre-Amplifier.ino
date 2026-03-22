@@ -92,6 +92,7 @@ void setup() {
       drawFaultScreen("Starting without audio control", 0);
       delay(3000);
       loadSettings();
+      resetSessionInputVolumes();
       isMuted = true;  // Force muted — no chip to control anyway
     } else {
       // Recovery geslaagd — gewone audio-init nog uitvoeren
@@ -114,6 +115,7 @@ void setup() {
 
     // Laad opgeslagen instellingen (voor initControls zodat volume/input kloppen)
     loadSettings();
+    resetSessionInputVolumes();
     // isMuted wordt gezet door initControls() via applyRelayState(muteOnStartup)
 
     // Initialize controls (must be after I2C init)
@@ -342,7 +344,7 @@ void handleIR() {
     case IR_ACT_INPUT_5:
       if (!isRepeat && !inStandby) {
         uint8_t target = (uint8_t)(action - IR_ACT_INPUT_1);
-        if (target < INPUT_COUNT) setInput(target);
+        if (target < INPUT_COUNT) selectInput(target);
         irLastActionMs = now;
       }
       break;
