@@ -92,6 +92,7 @@ void setup() {
       drawFaultScreen("Starting without audio control", 0);
       delay(3000);
       loadSettings();
+      resetSessionInputVolumes();
       isMuted = true;  // Force muted — no chip to control anyway
     } else {
       // Recovery geslaagd — gewone audio-init nog uitvoeren
@@ -114,6 +115,7 @@ void setup() {
 
     // Laad opgeslagen instellingen (voor initControls zodat volume/input kloppen)
     loadSettings();
+    resetSessionInputVolumes();
     // isMuted wordt gezet door initControls() via applyRelayState(muteOnStartup)
 
     // Initialize controls (must be after I2C init)
@@ -176,6 +178,7 @@ static uint32_t irCmdFirstMs    = 0;      // When first press arrived
 static uint32_t irLastActionMs  = 0;      // When last action was taken
 
 static int8_t matchIRAction(uint8_t protocol, uint16_t address, uint8_t command) {
+  if (protocol == UNKNOWN || protocol == IR_PROTOCOL_UNKNOWN) return -1;
   for (uint8_t i = 0; i < IR_ACTION_COUNT; i++) {
     bool protoMatch = (irProtocolMap[i] == IR_PROTOCOL_ANY) || (irProtocolMap[i] == protocol);
     if (protoMatch &&
@@ -251,11 +254,6 @@ void handleIR() {
     }
   }
 
-  // Wake uit dim bij elk geldig IR signaal
-  if (action >= 0 && !inStandby) {
-    notifyActivity();
-  }
-
   if (action < 0) {
     if (!isRepeat && IrReceiver.decodedIRData.protocol != UNKNOWN) {
     }
@@ -291,6 +289,7 @@ void handleIR() {
       bool doAction = !isRepeat ||
                       (inRepeatWindow && sinceLast >= IR_VOL_REPEAT_MS);
       if (doAction) {
+        notifyActivity();
         int step = (heldMs >= IR_VOL_ACCEL_MS) ? IR_VOL_ACCEL_STEP : 1;
         adjustVolume((action == IR_ACT_VOL_UP) ? step : -step);
         irLastActionMs = now;
@@ -301,6 +300,7 @@ void handleIR() {
     // ── Mute ───────────────────────────────────────────────────────────────
     case IR_ACT_MUTE:
       if (!isRepeat && !inStandby) {
+        notifyActivity();
         toggleMute();
         irLastActionMs = now;
       }
@@ -322,6 +322,7 @@ void handleIR() {
     // Single press only — switching has a relay delay, repeat makes no sense
     case IR_ACT_INPUT_UP:
       if (!isRepeat && !inStandby) {
+        notifyActivity();
         adjustInput(1);
         irLastActionMs = now;
       }
@@ -329,6 +330,7 @@ void handleIR() {
 
     case IR_ACT_INPUT_DOWN:
       if (!isRepeat && !inStandby) {
+        notifyActivity();
         adjustInput(-1);
         irLastActionMs = now;
       }
@@ -342,7 +344,10 @@ void handleIR() {
     case IR_ACT_INPUT_5:
       if (!isRepeat && !inStandby) {
         uint8_t target = (uint8_t)(action - IR_ACT_INPUT_1);
-        if (target < INPUT_COUNT) setInput(target);
+        if (target < INPUT_COUNT) {
+          notifyActivity();
+          selectInput(target);
+        }
         irLastActionMs = now;
       }
       break;
@@ -354,6 +359,7 @@ void handleIR() {
       bool doAction = !isRepeat ||
                       (inRepeatWindow && sinceLast >= IR_BAL_REPEAT_MS);
       if (doAction) {
+        notifyActivity();
         // Geef isRepeat mee zodat de detent repeat kan blokkeren bij center
         if (action == IR_ACT_BAL_LEFT)  adjustBalanceLeft(isRepeat);
         else                            adjustBalanceRight(isRepeat);

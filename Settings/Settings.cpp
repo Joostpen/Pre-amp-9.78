@@ -139,6 +139,19 @@ static void structToGlobals(const Settings& s) {
     irAddressMap[i]  = s.irAddressMap[i];
     irCommandMap[i]  = s.irCommandMap[i];
   }
+
+  for (uint8_t i = 0; i < INPUT_COUNT; i++) {
+    uint8_t effectiveMax = (uint8_t)constrain((int)maxVolume - (int)inputOffset[i], VOL_MIN, VOL_MAX);
+    startupVolume[i] = constrain((int)startupVolume[i], 0, (int)effectiveMax);
+    if (i != surroundInput) {
+      savedVolume[i] = constrain((int)savedVolume[i], 0, (int)effectiveMax);
+    }
+  }
+
+  if (currentInput != surroundInput) {
+    uint8_t currentEffectiveMax = (uint8_t)constrain((int)maxVolume - (int)inputOffset[currentInput], VOL_MIN, VOL_MAX);
+    currentVolume = constrain((int)currentVolume, 0, (int)currentEffectiveMax);
+  }
 }
 
 // ── loadSettings ──────────────────────────────────────────────────────────────

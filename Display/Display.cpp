@@ -282,7 +282,8 @@ static bool     deepDimActive    = false; // Tweede dimfase actief op hoofdscher
 static bool     backlightOffActive = false; // Derde dimfase: backlight volledig uit
 // Mute-dim state verwijderd — mute toont tekst op hoofdscherm
 static bool     switchingInput = false;
-static char     switchTargetName[16] = "";
+static uint32_t switchOverlayUntilMs = 0;
+#define SWITCH_OVERLAY_MS  3000UL
 #define FULL_BRIGHTNESS  255
 #define TOUCH_RELEASE_MS  80
 #define IR_RESET_HOLD_MS  900
@@ -1032,6 +1033,10 @@ static bool detailPanelSuppressedByDim = false;  // Runtime suppressie bij auto-
 static inline bool detailPanelActive() {
   return detailMode > 0 && !detailPanelSuppressedByDim;
 }
+
+static inline bool largeVolumeFontActive() {
+  return largeFontOnDim && !detailPanelActive();
+}
 // detailPanelSimple() verwijderd — alleen simpel panel bestaat nog
 static uint32_t balShowMs      = 0;      // Timestamp balance bar zichtbaar
 #define BAL_VISIBLE_MS  3000             // Balance bar zichtbaar voor 3 sec
@@ -1110,21 +1115,33 @@ static void clearMainNameArea() {
   display.fillRect(0, 36, SCREEN_W, 142, C_BG);
 }
 
-void showSwitchingScreen(const char* newName) {
+
+void showSwitchingScreen(uint8_t inputIdx) {
   // Geen fillScreen — detail panel en rij 2 blijven staan.
   // Alleen de inputnaam-zone en volumezone worden gewist en herschreven.
 
-  // Inputnaam-zone: alleen de naamtekstband wissen (minder flicker)
   clearMainNameArea();
-  strncpy(switchTargetName, newName, sizeof(switchTargetName)-1);
-  switchTargetName[sizeof(switchTargetName)-1] = 0;
-  if (mainFontMode == FONT_MATRIX) drawDotMatrixString(AA_MED, switchTargetName, 0, 120 - MAIN_MATRIX_NAME_SHIFT_UP_PX, C_GRAY_DIM, AA_CENTER, SCREEN_W, 9, 3, 6);
-  else AAFont_drawString(AA_MED, switchTargetName, 0, 106, dimC(C_GRAY_DIM), C_BG, AA_CENTER, SCREEN_W);
+  uint32_t nowMs = millis();
+  if (isInputSwitchPending() || switchOverlayUntilMs == 0 || inputIdx != currentInput) {
+    switchOverlayUntilMs = nowMs + SWITCH_OVERLAY_MS;
+  }
+
+  uint8_t namePct = (uint8_t)(62 + 38U * (255U - mainCalmBlend) / 255U);
+  uint16_t nameColor = dimC(scale565(governedMainAccent(), namePct));
+  const char* targetName = inputNames[inputIdx];
+
+  if (mainFontMode == FONT_MATRIX) {
+    drawDotMatrixString(AA_MED, targetName, 0, 120 - MAIN_MATRIX_NAME_SHIFT_UP_PX,
+                        scale565(governedMainAccent(), namePct), AA_CENTER, SCREEN_W, 9, 3, 6);
+  } else if (mainFontMode == FONT_ORBITRON) {
+    AAFont_drawStringScaled(&Orbitron48AA, targetName, 0, 106, nameColor, C_BG, 20, AA_CENTER, SCREEN_W);
+  } else {
+    AAFont_drawString(AA_MED, targetName, 0, 106, nameColor, C_BG, AA_CENTER, SCREEN_W);
+  }
   drawMainHairline();
 
-  // Volumezone: y=173..DP_TOP
-  display.fillRect(0, 173, SCREEN_W, DP_TOP - 173, C_BG);
-  AAFont_drawStringScaled(AA_VOL, "\xe2\x80\x94", 0, 300, dimC(C_GRAY_DIM), C_BG, 24, AA_CENTER, SCREEN_W);
+  clearPrimaryValueZone();
+  drawMainPrimaryValue();
 }
 
 
@@ -1326,7 +1343,7 @@ static void formatVolStr(char* buf, uint8_t vol) {
     uint16_t pct = (uint16_t)(((uint32_t)vol * 100U + 127U) / 255U);
     sprintf(buf, "%u%%", (unsigned)pct);
   } else {
-    sprintf(buf, "%u", (unsigned)vol);
+    sprintf(buf, "%u St.", (unsigned)vol);
   }
 }
 
@@ -1366,8 +1383,21 @@ static int16_t volStrWidthPxOrbitron(const char* s) {
 
 static void formatVolNumStr(char* buf, uint8_t vol) {
   if (vol == VOL_OFF) { strcpy(buf, "Off"); return; }
-  float dB = (vol * 0.5f) - 115.5f;
-  sprintf(buf, "%.1f", dB);
+  if (volUnitsMode == VOL_UNITS_DB) {
+    float dB = (vol * 0.5f) - 115.5f;
+    sprintf(buf, "%.1f", dB);
+  } else if (volUnitsMode == VOL_UNITS_PERCENT) {
+    uint16_t pct = (uint16_t)(((uint32_t)vol * 100U + 127U) / 255U);
+    sprintf(buf, "%u", (unsigned)pct);
+  } else {
+    sprintf(buf, "%u", (unsigned)vol);
+  }
+}
+
+static const char* currentVolUnitLabel() {
+  if (volUnitsMode == VOL_UNITS_DB) return "dB";
+  if (volUnitsMode == VOL_UNITS_PERCENT) return "%";
+  return "St.";
 }
 
 static void clearPrimaryValueZone() {
@@ -1387,7 +1417,7 @@ static void drawMainPrimaryValue() {
   // (mute toggle, bypass, volumesprong bij inputwissel).
   //
   // Schaal en positie op basis van fontIsLarge (binair, crossfade regelt de overgang).
-  const bool    useLarge = fontIsLarge && largeFontOnDim;
+  const bool    useLarge = fontIsLarge;
   const int16_t VAL_Y    = (useLarge ? 340 : 310) - MAIN_MATRIX_VALUE_SHIFT_UP_PX;
   const uint8_t scaleStd = useLarge ? 30 : 24;
   const uint8_t scaleOrb = useLarge ? 50 : 40;
@@ -1421,30 +1451,26 @@ static void drawMainPrimaryValue() {
     if (mainFontMode == FONT_MATRIX) {
       char vs[16]; formatVolStr(vs, currentVolume);
       drawDotMatrixStringScaled(AA_VOL, vs, 0, VAL_Y, vCol, AA_CENTER, SCREEN_W, scaleStd, dotPitch, dotR, dotGap);
-    } else if (mainFontMode == FONT_ORBITRON && volUnitsMode == VOL_UNITS_DB) {
-      char vs[16]; formatVolNumStr(vs, currentVolume);
-      const int16_t DB_GAP = useLarge ? 30 : 24;
-      const int16_t DB_W   = useLarge ? 75 : 60;
-      int16_t numW = AAFont_stringWidthScaled(&Orbitron48AA, vs, scaleOrb);
-      int16_t numX = (SCREEN_W - (numW + DB_GAP + DB_W)) / 2;
-      AAFont_drawStringScaled(&Orbitron48AA, vs, numX, VAL_Y, VOL_ALPHA(dimC(vCol)), C_BG, scaleOrb, AA_LEFT, numW + 4);
-      uint8_t dbPct = (uint8_t)(38 + 22U * (255U - mainCalmBlend) / 255U);
-      AAFont_drawString(AA_SM, "dB", numX + numW + DB_GAP, VAL_Y, VOL_ALPHA(dimC(scale565(volColor(), dbPct))), C_BG, AA_LEFT, DB_W);
     } else if (mainFontMode == FONT_ORBITRON) {
-      char vs[16]; formatVolStr(vs, currentVolume);
-      AAFont_drawStringScaled(&Orbitron48AA, vs, 0, VAL_Y, VOL_ALPHA(dimC(vCol)), C_BG, scaleOrb, AA_CENTER, SCREEN_W);
-    } else if (volUnitsMode == VOL_UNITS_DB) {
       char vs[16]; formatVolNumStr(vs, currentVolume);
-      const int16_t DB_GAP = useLarge ? 22 : 18;
-      const int16_t DB_W   = useLarge ? 65 : 52;
-      int16_t numW = AAFont_stringWidthScaled(AA_VOL, vs, scaleStd);
-      int16_t numX = (SCREEN_W - (numW + DB_GAP + DB_W)) / 2;
-      AAFont_drawStringScaled(AA_VOL, vs, numX, VAL_Y, VOL_ALPHA(dimC(vCol)), C_BG, scaleStd, AA_LEFT, numW + 4);
-      uint8_t dbPct = (uint8_t)(38 + 22U * (255U - mainCalmBlend) / 255U);
-      AAFont_drawString(AA_SM, "dB", numX + numW + DB_GAP, VAL_Y, VOL_ALPHA(dimC(scale565(volColor(), dbPct))), C_BG, AA_LEFT, DB_W);
+      const char* unit = currentVolUnitLabel();
+      const int16_t UNIT_GAP = useLarge ? 30 : 24;
+      const int16_t UNIT_W   = AAFont_stringWidth(AA_SM, unit) + 8;
+      int16_t numW = AAFont_stringWidthScaled(&Orbitron48AA, vs, scaleOrb);
+      int16_t numX = (SCREEN_W - (numW + UNIT_GAP + UNIT_W)) / 2;
+      AAFont_drawStringScaled(&Orbitron48AA, vs, numX, VAL_Y, VOL_ALPHA(dimC(vCol)), C_BG, scaleOrb, AA_LEFT, numW + 4);
+      uint8_t unitPct = (uint8_t)(38 + 22U * (255U - mainCalmBlend) / 255U);
+      AAFont_drawString(AA_SM, unit, numX + numW + UNIT_GAP, VAL_Y, VOL_ALPHA(dimC(scale565(volColor(), unitPct))), C_BG, AA_LEFT, UNIT_W);
     } else {
-      char vs[16]; formatVolStr(vs, currentVolume);
-      AAFont_drawStringScaled(AA_VOL, vs, 0, VAL_Y, VOL_ALPHA(dimC(vCol)), C_BG, scaleStd, AA_CENTER, SCREEN_W);
+      char vs[16]; formatVolNumStr(vs, currentVolume);
+      const char* unit = currentVolUnitLabel();
+      const int16_t UNIT_GAP = useLarge ? 22 : 18;
+      const int16_t UNIT_W   = AAFont_stringWidth(AA_SM, unit) + 8;
+      int16_t numW = AAFont_stringWidthScaled(AA_VOL, vs, scaleStd);
+      int16_t numX = (SCREEN_W - (numW + UNIT_GAP + UNIT_W)) / 2;
+      AAFont_drawStringScaled(AA_VOL, vs, numX, VAL_Y, VOL_ALPHA(dimC(vCol)), C_BG, scaleStd, AA_LEFT, numW + 4);
+      uint8_t unitPct = (uint8_t)(38 + 22U * (255U - mainCalmBlend) / 255U);
+      AAFont_drawString(AA_SM, unit, numX + numW + UNIT_GAP, VAL_Y, VOL_ALPHA(dimC(scale565(volColor(), unitPct))), C_BG, AA_LEFT, UNIT_W);
     }
   }
   #undef VOL_ALPHA
@@ -1889,12 +1915,7 @@ static void redrawDetailBalanceCard() {
 }
 
 
-void updateAfterInputSwitch() {
-  // Gerichte update na inputwissel.
-  // showSwitchingScreen() heeft alleen de naam- en volumezone gewist —
-  // het detail panel staat nog volledig op het scherm.
-  // Werk alleen de zones bij die daadwerkelijk veranderen.
-
+static void restoreMainAfterInputOverlay() {
   // 1. Inputnaam — eerst zone wissen om overlap met switching-font te voorkomen
   clearAndDrawInputName();
   drawMainHairline();
@@ -1907,17 +1928,23 @@ void updateAfterInputSwitch() {
   if (detailPanelActive()) drawSimpleDetailPanel();
 }
 
+void updateAfterInputSwitch() {
+  // Houd na het fysieke schakelen nog even de gekozen poort-overlay zichtbaar.
+  switchOverlayUntilMs = 0;
+  showSwitchingScreen(currentInput);
+}
+
 void drawMainScreen() {
   if (currentScreen == SCR_BOOT || currentScreen == SCR_WARMUP) return;
   currentScreen = SCR_MAIN;
   mainCalmMode  = false;
   mainCalmBlend = 0;
-  fontIsLarge  = false;
+  fontIsLarge  = largeVolumeFontActive();
   xfadeState   = XF_IDLE;
   volBlinkCount = 0;
   volBlinkOn    = true;
   volBlinkNeedsRestore = false;
-  panelBlend   = (detailMode > 0) ? 255 : 0;
+  panelBlend   = detailPanelActive() ? 255 : 0;
   if (inStandby) {
     if (screenBrightness == 0) {
       setScreenBrightness(activeBrightness());
@@ -3070,7 +3097,7 @@ static void drawThemeMotionScreen() {
   // Rij 3: Hue tune balk
   drawColorTuneRow(DS_ROW3_Y);
 
-  // Knoppen onderaan: Font | Detail color | Large font on dim
+  // Knoppen onderaan: Font | Detail color | Large font without panel
   const int16_t TN = 3;
   const int16_t tbw = menuBtnW(TN);
   const char* fnt_val = (mainFontMode == FONT_MATRIX)   ? "Matrix"
@@ -3083,7 +3110,7 @@ static void drawThemeMotionScreen() {
   drawMenuTogBtn(menuBtnX(1, tbw), MENU_BTN_Y, tbw, MENU_BTN_H,
                  "Detail color", det_val, detailColorFollow != SETTINGS_DEFAULT.detailColorFollow);
   drawMenuTogBtn(menuBtnX(2, tbw), MENU_BTN_Y, tbw, MENU_BTN_H,
-                 "Large on dim", lfd_val, largeFontOnDim != SETTINGS_DEFAULT.largeFontOnDim);
+                 "Large w/o panel", lfd_val, largeFontOnDim != SETTINGS_DEFAULT.largeFontOnDim);
 
   // Kleurpreview rechts van de knoppen — vervalt bij 3 knoppen (geen ruimte meer)
 
@@ -3668,14 +3695,7 @@ static void updateIRLearnRows() {
 
 
 static void performIRResetAllCodes() {
-  for (uint8_t j = 0; j < IR_ACTION_COUNT; j++) {
-    irProtocolMap[j] = IR_PROTOCOL_ANY;
-    irAddressMap[j]  = IR_ADDRESS;
-    irCommandMap[j]  = ((const uint8_t[]){
-      IR_CMD_VOL_UP, IR_CMD_VOL_DOWN, IR_CMD_INPUT_UP, IR_CMD_INPUT_DOWN,
-      IR_CMD_BAL_LEFT, IR_CMD_BAL_RIGHT, IR_CMD_MUTE, IR_CMD_STANDBY
-    })[j];
-  }
+  resetIRMappingsToDefaults();
   irLearnArmed = false;
   flushSettings();
   drawIRLearnScreen();
@@ -4084,7 +4104,7 @@ void updateDisplay() {
   if (currentScreen == SCR_BOOT) {
     // Static screen — nothing to update each frame
     if ((now - bootStartTime) >= BOOT_DURATION_MS) {
-      currentVolume = startupVolume[currentInput]; applyVolume();  // isMuted/relay al gezet door initControls()
+      currentVolume = savedVolume[currentInput]; applyVolume();  // Session-start volume = startup baseline
       currentScreen = SCR_MAIN; lastActivityMs = millis(); drawMainScreen();
     }
     return;
@@ -4150,6 +4170,23 @@ void updateDisplay() {
     mainCalmMode = true;
   }
 
+  if (currentScreen == SCR_MAIN && switchingInput && !isInputSwitchPending()
+      && switchOverlayUntilMs > 0 && now < switchOverlayUntilMs
+      && (switchOverlayUntilMs - now) <= 300UL) {
+    static uint32_t lastSwitchFadeMs = 0;
+    if ((now - lastSwitchFadeMs) >= 33) {
+      lastSwitchFadeMs = now;
+      showSwitchingScreen(currentInput);
+    }
+  }
+
+  if (currentScreen == SCR_MAIN && switchingInput && !isInputSwitchPending()
+      && switchOverlayUntilMs > 0 && now >= switchOverlayUntilMs) {
+    switchingInput = false;
+    switchOverlayUntilMs = 0;
+    restoreMainAfterInputOverlay();
+  }
+
   static uint32_t lastCalmAnimMs = 0;
   if (currentScreen == SCR_MAIN && !inStandby && !switchingInput && screenBrightness == activeBrightness()
       && (now - lastCalmAnimMs) >= calmAnimIntervalMs()) {
@@ -4196,10 +4233,8 @@ void updateDisplay() {
       && (now - lastBlendAnimMs) >= 20) {
     lastBlendAnimMs = now;
 
-    bool suppress    = detailPanelSuppressedByDim;
-    bool wantLarge   = suppress && largeFontOnDim && !fadeActive;
-    // Bij wake of largeFontOnDim uit: altijd klein
-    if (!suppress || !largeFontOnDim) wantLarge = false;
+    bool panelHidden = !detailPanelActive();
+    bool wantLarge   = largeVolumeFontActive();
 
     // Trigger crossfade als gewenste staat verschilt van huidige en we niet al faden
     if (wantLarge != fontIsLarge && xfadeState == XF_IDLE) {
@@ -4248,7 +4283,7 @@ void updateDisplay() {
     // Panelblend ook bijhouden als er geen crossfade loopt maar panel
     // aan/uit gaat zonder fontwissel (detailMode toggle, wake zonder fontchange)
     if (xfadeState == XF_IDLE) {
-      uint8_t pbTarget = suppress ? 0 : (detailMode > 0 ? 255 : 0);
+      uint8_t pbTarget = panelHidden ? 0 : 255;
       if (panelBlend != pbTarget) {
         uint8_t step = blendAnimStep(panelBlend, pbTarget);
         if (panelBlend < pbTarget) {
