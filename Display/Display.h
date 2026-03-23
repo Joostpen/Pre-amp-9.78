@@ -38,7 +38,7 @@ void updateVolumeDisplay();   // Volume of mute gewijzigd
 void triggerVolBlink();       // Max volume bereikt of overschreden — 3× knipperen
 void updateInputDisplay();
 void updateAfterInputSwitch();
-void showSwitchingScreen(const char* newName);    // Actieve ingang gewijzigd
+void showSwitchingScreen(uint8_t inputIdx);       // Actieve ingang gewijzigd
 void drawMainScreen();        // Volledig hoofdscherm hertekenen
 void fadeTransition();         // Zachte overgang bij mute/standby
 void setSwitchingInput(bool s); // Blokkeert timer-updates tijdens input-wissel
