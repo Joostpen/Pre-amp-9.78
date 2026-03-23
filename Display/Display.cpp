@@ -1915,19 +1915,6 @@ static void redrawDetailBalanceCard() {
 }
 
 
-static void restoreMainAfterInputOverlay() {
-  // 1. Inputnaam — eerst zone wissen om overlap met switching-font te voorkomen
-  clearAndDrawInputName();
-  drawMainHairline();
-
-  // 2. Volumezone
-  display.fillRect(0, 173, SCREEN_W, DP_TOP - 173, C_BG);
-  drawMainPrimaryValue();
-
-  // 3. Detail panel bijwerken
-  if (detailPanelActive()) drawSimpleDetailPanel();
-}
-
 void updateAfterInputSwitch() {
   // Houd na het fysieke schakelen nog even de gekozen poort-overlay zichtbaar.
   switchOverlayUntilMs = 0;
@@ -3843,9 +3830,10 @@ void updateDisplay() {
 
   if (currentScreen == SCR_MAIN && switchingInput && !isInputSwitchPending()
       && switchOverlayUntilMs > 0 && now >= switchOverlayUntilMs) {
+    // Geen eind-redraw nodig: de switching overlay tekent al de finale main-state.
+    // Alleen de timer/flag opruimen voorkomt een zichtbare 3s-flicker.
     switchingInput = false;
     switchOverlayUntilMs = 0;
-    restoreMainAfterInputOverlay();
   }
 
   static uint32_t lastCalmAnimMs = 0;
