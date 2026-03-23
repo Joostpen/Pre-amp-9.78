@@ -6,6 +6,18 @@
  * scope and behavior. Included directly from Display.cpp.
  */
 
+static inline void saveAndRedraw(void (*redrawFn)()) {
+  saveSettings();
+  redrawFn();
+}
+
+static void redrawVGToggleRowStrip() {
+  display.startBuffering();
+  display.fillRect(16, MENU_BTN_Y, SCREEN_W-32, MENU_BTN_H, C_BG);
+  drawVGToggleRow(16, MENU_BTN_Y, SCREEN_W-32);
+  display.endBuffering();
+}
+
 static void handleVolumeGainTouch(int16_t tx, int16_t ty) {
   if (touchedHdrBack(tx,ty)) { vgSelection=VG_NONE; drawMainMenu(); return; }
 
@@ -28,22 +40,15 @@ static void handleVolumeGainTouch(int16_t tx, int16_t ty) {
     const int16_t N  = 5;
     const int16_t bw = menuBtnW(N);
 
-    auto redrawToggles = [&]() {
-      display.startBuffering();
-      display.fillRect(16, MENU_BTN_Y, SCREEN_W-32, MENU_BTN_H, C_BG);
-      drawVGToggleRow(16, MENU_BTN_Y, SCREEN_W-32);
-      display.endBuffering();
-    };
-
     if (ty >= MENU_BTN_Y && ty < MENU_BTN_Y + MENU_BTN_H) {
       for (int8_t i = 0; i < N; i++) {
         int16_t bx = menuBtnX(i, bw);
         if (tx >= bx && tx < bx + bw) {
           switch (i) {
-            case 0: muteOnStartup = !muteOnStartup; saveSettings(); redrawToggles(); return;
-            case 1: volUnitsMode = (uint8_t)((volUnitsMode + 1) % 3); saveSettings(); redrawToggles(); return;
-            case 2: volumeCurve = (uint8_t)((volumeCurve + 1) % 3); saveSettings(); redrawToggles(); return;
-            case 3: encSensitivity = (uint8_t)((encSensitivity + 1) % 3); saveSettings(); redrawToggles(); return;
+            case 0: muteOnStartup = !muteOnStartup; saveAndRedraw(redrawVGToggleRowStrip); return;
+            case 1: volUnitsMode = (uint8_t)((volUnitsMode + 1) % 3); saveAndRedraw(redrawVGToggleRowStrip); return;
+            case 2: volumeCurve = (uint8_t)((volumeCurve + 1) % 3); saveAndRedraw(redrawVGToggleRowStrip); return;
+            case 3: encSensitivity = (uint8_t)((encSensitivity + 1) % 3); saveAndRedraw(redrawVGToggleRowStrip); return;
             case 4: drawTransformerScreen(); return;
           }
         }
@@ -100,8 +105,7 @@ static void handleNamesTouch(int16_t tx, int16_t ty) {
       // Dedicated bypass toggle column
       if (tx >= BP_X && tx <= BP_X + BP_W) {
         surroundInput = i;
-        saveSettings();
-        drawNamesScreen();
+        saveAndRedraw(drawNamesScreen);
         return;
       }
 
@@ -150,8 +154,7 @@ static void handleDisplayTouch(int16_t tx, int16_t ty) {
       int8_t prev = dsSelection;
       dsSelection = (dsSelection == r) ? VG_NONE : (int8_t)r;
       if (prev != dsSelection) {
-        saveSettings();
-        drawDimSettingsScreen();
+        saveAndRedraw(drawDimSettingsScreen);
         if (r == 0 || prev == 0) setScreenBrightness(activeBrightness());
       }
       return;
@@ -165,8 +168,8 @@ static void handleDisplayTouch(int16_t tx, int16_t ty) {
     for (int8_t i = 0; i < DN; i++) {
       if (tx >= menuBtnX(i,dbw) && tx < menuBtnX(i,dbw)+dbw) {
         switch(i) {
-          case 0: detailMode = (detailMode==1)?0:1; detailPanelSuppressedByDim=false; saveSettings(); drawDimSettingsScreen(); return;
-          case 1: detailVisibleOnDim = !detailVisibleOnDim; saveSettings(); drawDimSettingsScreen(); return;
+          case 0: detailMode = (detailMode==1)?0:1; detailPanelSuppressedByDim=false; saveAndRedraw(drawDimSettingsScreen); return;
+          case 1: detailVisibleOnDim = !detailVisibleOnDim; saveAndRedraw(drawDimSettingsScreen); return;
           case 2: dsSelection = VG_NONE; drawThemeMotionScreen(); return;
         }
       }
@@ -183,7 +186,7 @@ static void handleThemeMotionTouch(int16_t tx, int16_t ty) {
   if (ty >= DS_ROW0_Y && ty < DS_ROW0_Y + SR_H) {
     int8_t prev = dsSelection;
     dsSelection = (dsSelection == 0) ? VG_NONE : 0;
-    if (prev != dsSelection) { saveSettings(); drawThemeMotionScreen(); }
+    if (prev != dsSelection) { saveAndRedraw(drawThemeMotionScreen); }
     return;
   }
 
@@ -192,7 +195,7 @@ static void handleThemeMotionTouch(int16_t tx, int16_t ty) {
     const int16_t oW=88, oG=UI_CTRL_GAP;
     for (int i=0;i<4;i++) {
       int16_t ox=DS_CTRL_X+i*(oW+oG);
-      if (tx>=ox&&tx<=ox+oW) { accentColor=ACCENT_PRESETS[i]; saveSettings(); drawThemeMotionScreen(); break; }
+      if (tx>=ox&&tx<=ox+oW) { accentColor=ACCENT_PRESETS[i]; saveAndRedraw(drawThemeMotionScreen); break; }
     }
     return;
   }
@@ -202,7 +205,7 @@ static void handleThemeMotionTouch(int16_t tx, int16_t ty) {
     const int16_t oW=88, oG=UI_CTRL_GAP;
     for (int i=0;i<4;i++) {
       int16_t ox=DS_CTRL_X+i*(oW+oG);
-      if (tx>=ox&&tx<=ox+oW) { accentColor=ACCENT_PRESETS[i+4]; saveSettings(); drawThemeMotionScreen(); break; }
+      if (tx>=ox&&tx<=ox+oW) { accentColor=ACCENT_PRESETS[i+4]; saveAndRedraw(drawThemeMotionScreen); break; }
     }
     return;
   }
@@ -223,7 +226,7 @@ static void handleThemeMotionTouch(int16_t tx, int16_t ty) {
     } else if (tx >= barX && tx <= barX + barW) {
       step = (uint8_t)constrain((int32_t)(tx - barX) * 48 / barW, 0, 47); ch = true;
     }
-    if (ch) { accentColor = hueStepToColor565(step); saveSettings(); drawThemeMotionScreen(); }
+    if (ch) { accentColor = hueStepToColor565(step); saveAndRedraw(drawThemeMotionScreen); }
     return;
   }
 
@@ -232,13 +235,13 @@ static void handleThemeMotionTouch(int16_t tx, int16_t ty) {
     const int16_t TN  = 3;
     const int16_t tbw = menuBtnW(TN);
     if (tx >= menuBtnX(0,tbw) && tx < menuBtnX(0,tbw)+tbw) {
-      mainFontMode = (uint8_t)((mainFontMode + 1) % 3); saveSettings(); drawThemeMotionScreen(); return;
+      mainFontMode = (uint8_t)((mainFontMode + 1) % 3); saveAndRedraw(drawThemeMotionScreen); return;
     }
     if (tx >= menuBtnX(1,tbw) && tx < menuBtnX(1,tbw)+tbw) {
-      detailColorFollow = !detailColorFollow; saveSettings(); drawThemeMotionScreen(); return;
+      detailColorFollow = !detailColorFollow; saveAndRedraw(drawThemeMotionScreen); return;
     }
     if (tx >= menuBtnX(2,tbw) && tx < menuBtnX(2,tbw)+tbw) {
-      largeFontOnDim = !largeFontOnDim; saveSettings(); drawThemeMotionScreen(); return;
+      largeFontOnDim = !largeFontOnDim; saveAndRedraw(drawThemeMotionScreen); return;
     }
   }
 }
@@ -253,8 +256,8 @@ static void handleSystemTouch(int16_t tx, int16_t ty) {
     for (int8_t i = 0; i < SYS_N3; i++) {
       if (tx >= menuBtnX(i,sbw2) && tx < menuBtnX(i,sbw2)+sbw2) {
         switch(i) {
-          case 0: warmStandbyEnabled = !warmStandbyEnabled; saveSettings(); drawSystemScreen(); return;
-          case 1: if (warmStandbyEnabled) { warmTrigRelayClosed = !warmTrigRelayClosed; saveSettings(); drawSystemScreen(); } return;
+          case 0: warmStandbyEnabled = !warmStandbyEnabled; saveAndRedraw(drawSystemScreen); return;
+          case 1: if (warmStandbyEnabled) { warmTrigRelayClosed = !warmTrigRelayClosed; saveAndRedraw(drawSystemScreen); } return;
           case 2:
             remoteTriggerEnabled = !remoteTriggerEnabled;
             if (!remoteTriggerEnabled) {
@@ -262,7 +265,7 @@ static void handleSystemTouch(int16_t tx, int16_t ty) {
             } else {
               resetRemoteTrigger();  // Herstart delay-venster zodat trigger alsnog fired
             }
-            saveSettings(); drawSystemScreen(); return;
+            saveAndRedraw(drawSystemScreen); return;
           case 3: diagLastRefreshMs = millis(); drawDiagnosticsScreen(); return;
         }
       }
