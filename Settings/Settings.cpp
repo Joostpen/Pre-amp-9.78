@@ -34,11 +34,19 @@ uint8_t encSensitivity    = SETTINGS_DEFAULT.encSensitivity;
 
 static bool     settingsDirty   = false;
 static uint32_t settingsDirtyMs = 0;
-static uint8_t  persistedCurrentInput = SETTINGS_DEFAULT.currentInput;
-static uint8_t  persistedCurrentVolume = SETTINGS_DEFAULT.currentVolume;
-static uint8_t  persistedSavedVolume[INPUT_COUNT] = {
-  SETTINGS_DEFAULT.savedVolume[0], SETTINGS_DEFAULT.savedVolume[1], SETTINGS_DEFAULT.savedVolume[2],
-  SETTINGS_DEFAULT.savedVolume[3], SETTINGS_DEFAULT.savedVolume[4]
+struct StoredResumeState {
+  uint8_t input;
+  uint8_t volume;
+  uint8_t savedVolume[INPUT_COUNT];
+};
+
+static StoredResumeState storedResumeState = {
+  SETTINGS_DEFAULT.currentInput,
+  SETTINGS_DEFAULT.currentVolume,
+  {
+    SETTINGS_DEFAULT.savedVolume[0], SETTINGS_DEFAULT.savedVolume[1], SETTINGS_DEFAULT.savedVolume[2],
+    SETTINGS_DEFAULT.savedVolume[3], SETTINGS_DEFAULT.savedVolume[4]
+  }
 };
 
 // ── CRC16-CCITT ───────────────────────────────────────────────────────────────
@@ -56,6 +64,22 @@ static uint16_t calcCRC(const Settings& s) {
   return crc16((const uint8_t*)&s, sizeof(Settings) - sizeof(uint16_t));
 }
 
+static void copyStoredResumeStateToSettings(Settings& s) {
+  s.currentInput  = storedResumeState.input;
+  s.currentVolume = storedResumeState.volume;
+  for (uint8_t i = 0; i < INPUT_COUNT; i++) {
+    s.savedVolume[i] = storedResumeState.savedVolume[i];
+  }
+}
+
+static void loadStoredResumeStateFromSettings(const Settings& s) {
+  storedResumeState.input  = constrain(s.currentInput, 0, INPUT_COUNT - 1);
+  storedResumeState.volume = constrain((int)s.currentVolume, 0, (int)s.maxVolume);
+  for (uint8_t i = 0; i < INPUT_COUNT; i++) {
+    storedResumeState.savedVolume[i] = constrain((int)s.savedVolume[i], 0, (int)s.maxVolume);
+  }
+}
+
 // ── Globals ↔ struct ──────────────────────────────────────────────────────────
 static void globalsToStruct(Settings& s) {
   s.structVersion = SETTINGS_DEFAULT.structVersion;
@@ -67,12 +91,10 @@ static void globalsToStruct(Settings& s) {
   s.gainLFOUT          = gainLFOUT;
   s.gainMFOUT          = gainMFOUT;
   s.surroundInput      = surroundInput;
-  s.currentVolume      = persistedCurrentVolume;
+  copyStoredResumeStateToSettings(s);
   for (uint8_t i = 0; i < INPUT_COUNT; i++) s.startupVolume[i] = startupVolume[i];
   s.maxVolume          = maxVolume;
   s.balanceOffset      = balanceOffset;
-  s.currentInput       = persistedCurrentInput;
-  for (uint8_t i = 0; i < INPUT_COUNT; i++) s.savedVolume[i] = persistedSavedVolume[i];
   s.dimDelaySec        = dimDelaySec;
   s.dimPercent         = dimPercent;
   s.deepDimDelayMin    = deepDimDelayMin;
@@ -111,17 +133,15 @@ static void structToGlobals(const Settings& s) {
   gainLFOUT          = (int8_t)constrain((int)s.gainLFOUT, -12,   0);
   gainMFOUT          = (int8_t)constrain((int)s.gainMFOUT, -12,   0);
   surroundInput      = constrain(s.surroundInput, 0, INPUT_COUNT - 1);
-  currentVolume      = constrain((int)s.currentVolume, 0, (int)s.maxVolume);
   for (uint8_t i = 0; i < INPUT_COUNT; i++)
     startupVolume[i] = constrain((int)s.startupVolume[i], 0, (int)s.maxVolume);
   maxVolume          = constrain(s.maxVolume, 0, 255);
   balanceOffset      = constrain((int)s.balanceOffset, -(BALANCE_MAX + 1), BALANCE_MAX + 1);
-  currentInput       = constrain(s.currentInput, 0, INPUT_COUNT - 1);
-  persistedCurrentInput = currentInput;
-  persistedCurrentVolume = currentVolume;
+  loadStoredResumeStateFromSettings(s);
+  currentInput       = storedResumeState.input;
+  currentVolume      = storedResumeState.volume;
   for (uint8_t i = 0; i < INPUT_COUNT; i++) {
-    savedVolume[i] = constrain((int)s.savedVolume[i], 0, (int)s.maxVolume);
-    persistedSavedVolume[i] = savedVolume[i];
+    savedVolume[i] = storedResumeState.savedVolume[i];
   }
   dimDelaySec        = constrain(s.dimDelaySec,      10,  600);
   dimPercent         = constrain(s.dimPercent,         5,   95);
@@ -157,14 +177,15 @@ static void structToGlobals(const Settings& s) {
     if (i != surroundInput) {
       savedVolume[i] = constrain((int)savedVolume[i], 0, (int)effectiveMax);
     }
-    persistedSavedVolume[i] = savedVolume[i];
+    storedResumeState.savedVolume[i] = savedVolume[i];
   }
 
   if (currentInput != surroundInput) {
     uint8_t currentEffectiveMax = (uint8_t)constrain((int)maxVolume - (int)inputOffset[currentInput], VOL_MIN, VOL_MAX);
     currentVolume = constrain((int)currentVolume, 0, (int)currentEffectiveMax);
   }
-  persistedCurrentVolume = currentVolume;
+  storedResumeState.input  = currentInput;
+  storedResumeState.volume = currentVolume;
 }
 
 // ── loadSettings ──────────────────────────────────────────────────────────────
@@ -205,8 +226,8 @@ void flushSettings() {
 }
 
 void persistCurrentInputForStandby() {
-  bool inputChanged = (persistedCurrentInput != currentInput);
-  persistedCurrentInput = currentInput;
+  bool inputChanged = (storedResumeState.input != currentInput);
+  storedResumeState.input = currentInput;
   if (inputChanged || settingsDirty) {
     flushSettings();
   }

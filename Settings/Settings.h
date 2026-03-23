@@ -37,12 +37,12 @@ struct Settings {
   int8_t   gainLFOUT;                    // LF OUT gain
   int8_t   gainMFOUT;                    // MF OUT gain
   uint8_t  surroundInput;                // Surround pass ingang (0..INPUT_COUNT-1)
-  uint8_t  currentVolume;                // Volume (0x00..0xFF)
+  uint8_t  currentVolume;                // Opgeslagen resume-volume seed (niet live sessievolume)
   uint8_t  startupVolume[INPUT_COUNT];   // Startup volume per ingang (0x00..0xFF)
   uint8_t  maxVolume;                    // Max volume beveiliging (0x00..0xFF, default 0.0 dB = 231)
   int8_t   balanceOffset;                // Balans (-(BALANCE_MAX+1)..+(BALANCE_MAX+1), +1 stap = kanaal-mute)
-  uint8_t  currentInput;                 // Actieve ingang (0..INPUT_COUNT-1)
-  uint8_t  savedVolume[INPUT_COUNT];      // Volume per ingang
+  uint8_t  currentInput;                 // Opgeslagen ingang voor volgende cold boot / standby-resume
+  uint8_t  savedVolume[INPUT_COUNT];      // Opgeslagen per-ingang resume-volumes (geen live sessiestatus)
   uint16_t dimDelaySec;                  // Auto-dim vertraging in seconden
   uint8_t  dimPercent;                   // Dim percentage (0-100)
   uint8_t  deepDimDelayMin;             // Deep-dim vertraging in minuten na dim (1-60)
