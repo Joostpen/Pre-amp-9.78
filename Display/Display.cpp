@@ -1236,10 +1236,21 @@ static const DotGlyph5x7 DOT_GLYPHS_5X7[] = {
 };
 
 static const uint8_t* glyph5x7(char c, char nextC) {
-  c = toDotMatrixChar(c, nextC);
-  for (size_t i = 0; i < sizeof(DOT_GLYPHS_5X7)/sizeof(DOT_GLYPHS_5X7[0]); ++i) {
-    if (DOT_GLYPHS_5X7[i].c == c) return DOT_GLYPHS_5X7[i].rows;
+  static bool lookupInit = false;
+  static const uint8_t* lookup[128];
+  if (!lookupInit) {
+    for (size_t i = 0; i < sizeof(lookup) / sizeof(lookup[0]); ++i) {
+      lookup[i] = DOT_GLYPHS_5X7[0].rows;
+    }
+    for (size_t i = 0; i < sizeof(DOT_GLYPHS_5X7) / sizeof(DOT_GLYPHS_5X7[0]); ++i) {
+      uint8_t idx = (uint8_t)DOT_GLYPHS_5X7[i].c;
+      if (idx < sizeof(lookup) / sizeof(lookup[0])) lookup[idx] = DOT_GLYPHS_5X7[i].rows;
+    }
+    lookupInit = true;
   }
+  c = toDotMatrixChar(c, nextC);
+  uint8_t idx = (uint8_t)c;
+  if (idx < sizeof(lookup) / sizeof(lookup[0])) return lookup[idx];
   return DOT_GLYPHS_5X7[0].rows; // space fallback
 }
 
@@ -1259,9 +1270,8 @@ static inline uint8_t safeCoreRadius(uint8_t pitch, uint8_t dotR) {
 }
 
 static inline void drawMatrixDot(int16_t px, int16_t py, uint16_t coreCol, uint16_t glowCol,
-                                 uint8_t pitch, uint8_t dotR) {
+                                 uint8_t coreR) {
   if (!_aaDisplay) return;
-  uint8_t coreR = safeCoreRadius(pitch, dotR);
 
   if (coreR == 0) {
     _aaDisplay->drawPixel(px, py, coreCol);
@@ -1291,6 +1301,7 @@ static void drawDotMatrixString(const AAFont* /*font*/, const char* str,
   int16_t curX = startX;
   uint16_t coreCol = dimC(scale565(fgColor, 100));
   uint16_t glowCol  = dimC(scale565(fgColor,  62));
+  uint8_t coreR = safeCoreRadius(pitch, dotR);
 
   if (manageWrite) AAFont_beginBatch();
 
@@ -1302,7 +1313,7 @@ static void drawDotMatrixString(const AAFont* /*font*/, const char* str,
         if (!(rowBits & (1u << (4 - rx)))) continue;
         int16_t px = curX + rx * pitch;
         int16_t py = topY + ry * pitch;
-        drawMatrixDot(px, py, coreCol, glowCol, pitch, dotR);
+        drawMatrixDot(px, py, coreCol, glowCol, coreR);
       }
     }
     curX += (5 * pitch + charGap);
@@ -2155,10 +2166,7 @@ void drawMainScreen() {
 
 void fadeTransition() {
   if (currentScreen == SCR_BOOT || currentScreen == SCR_WARMUP) return;
-  uint8_t saved = screenBrightness;
-  for (int b = (int)saved; b >= 0; b -= 42) { setScreenBrightness((uint8_t)max(0,b)); drawMainScreen(); delay(20); }
-  setScreenBrightness(0); drawMainScreen(); delay(40);
-  if (!inStandby) setScreenBrightness(saved);  // Bij standby-in: brightness blijft 0, updateDisplay() beheert dit
+  fadeTobrightness(0);  // updateDisplay() voert de fade non-blocking uit
 }
 
 static void redrawVolumeZone() {
