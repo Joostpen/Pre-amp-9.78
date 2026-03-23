@@ -131,13 +131,13 @@ void setup() {
   IrReceiver.begin(PIN_IR_RECV, DISABLE_LED_FEEDBACK);
 
 
-  // Set initial state — alleen als audio chips beschikbaar zijn
-  if (foundVolume) {
-    applyVolume();
-    applyGainAll();   // Gains naar hardware sturen na boot
-  }
-  if (foundControl) {
-    setInput(currentInput);
+  // Cold boot: houd audio pad stil tijdens de bootvertraging.
+  // Eerst mute dicht, daarna alle overige audio-relais uit. Herstel van input,
+  // gain en volume gebeurt gefaseerd vanuit updateDisplay().
+  if (!diagBootDegraded) {
+    syncRelayState(true);
+    standbyRelaysOff();
+    resetRemoteTrigger();
   }
   updateVolumeDisplay();
 

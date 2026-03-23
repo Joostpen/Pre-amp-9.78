@@ -200,6 +200,8 @@ static ScreenState currentScreen = SCR_BOOT;
 
 static uint32_t bootStartTime     = 0;
 static uint32_t warmupStartTime   = 0;
+static bool     bootAudioPathRestored = false;
+#define BOOT_AUDIO_RESTORE_MS  6000UL
 
 // ── Volume ramp-up bij standby-exit ──────────────────────────────────────────
 // Hardware volume loopt van 0 naar currentVolume, zonder currentVolume te wijzigen.
@@ -3612,6 +3614,7 @@ void initDisplay() {
   touch.begin();
   backlight.begin();
   bootStartTime = millis();
+  bootAudioPathRestored = false;
   screenBrightness = activeBrightness();
   setScreenBrightness(activeBrightness());
   // isMuted wordt NIET hier gezet — staat is eigendom van de relay state machine
@@ -3740,9 +3743,17 @@ void updateDisplay() {
   tickVolRamp();  // Non-blocking volume ramp-up na standby-exit
 
   if (currentScreen == SCR_BOOT) {
-    // Static screen — nothing to update each frame
+    if (!bootAudioPathRestored && (now - bootStartTime) >= BOOT_AUDIO_RESTORE_MS) {
+      applyGainAll();
+      setInput(currentInput);   // herstelt ook bypass bits
+      applyVolume();
+      bootAudioPathRestored = true;
+    }
+
     if ((now - bootStartTime) >= BOOT_DURATION_MS) {
-      currentVolume = savedVolume[currentInput]; applyVolume();  // Session-start volume = startup baseline
+      syncRelayState(muteOnStartup);
+      currentVolume = savedVolume[currentInput];
+      applyVolume();  // Session-start volume = startup baseline
       currentScreen = SCR_MAIN; lastActivityMs = millis(); drawMainScreen();
     }
     return;
