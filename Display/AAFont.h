@@ -36,7 +36,18 @@ enum AAAlign { AA_LEFT, AA_CENTER, AA_RIGHT };
 
 // ── Display referentie ────────────────────────────────────────────────────────
 static GigaDisplay_GFX* _aaDisplay = nullptr;
+static bool _aaBatchWriteActive = false;
 inline void AAFont_setDisplay(GigaDisplay_GFX* d) { _aaDisplay = d; }
+inline void AAFont_beginBatch() {
+  if (!_aaDisplay || _aaBatchWriteActive) return;
+  _aaDisplay->startWrite();
+  _aaBatchWriteActive = true;
+}
+inline void AAFont_endBatch() {
+  if (!_aaDisplay || !_aaBatchWriteActive) return;
+  _aaDisplay->endWrite();
+  _aaBatchWriteActive = false;
+}
 
 // ── Kleur blending (RGB565) ───────────────────────────────────────────────────
 static inline uint16_t aaBlend(uint16_t fg, uint16_t bg, uint8_t alpha4) {
@@ -74,6 +85,7 @@ static void AAFont_drawString(const AAFont* font, const char* str,
                                uint16_t fgColor, uint16_t bgColor,
                                AAAlign align = AA_LEFT, int16_t areaW = 0) {
   if (!_aaDisplay || !str) return;
+  bool manageWrite = !_aaBatchWriteActive;
 
   int16_t startX = x;
   if (align == AA_CENTER || align == AA_RIGHT) {
@@ -91,7 +103,7 @@ static void AAFont_drawString(const AAFont* font, const char* str,
   // startWrite/endWrite zorgen dat de refresh thread de drawPixel writes
   // naar het scherm kopieert. Zonder endWrite() blijven pixels in de
   // framebuffer maar worden ze nooit via dsi_lcdDrawImage() doorgestuurd.
-  _aaDisplay->startWrite();
+  if (manageWrite) AAFont_beginBatch();
 
   for (const char* p = str; *p; p++) {
     uint8_t c = (uint8_t)*p;
@@ -120,7 +132,7 @@ static void AAFont_drawString(const AAFont* font, const char* str,
     curX += g.xAdvance;
   }
 
-  _aaDisplay->endWrite();  // triggert refresh thread → dsi_lcdDrawImage()
+  if (manageWrite) AAFont_endBatch();  // triggert refresh thread → dsi_lcdDrawImage()
 }
 
 // ── Geschaalde tekst — voor grote volume/waarde weergave ──────────────────────
@@ -144,6 +156,7 @@ static void AAFont_drawStringScaled(const AAFont* font, const char* str,
                                     uint8_t scale_x16,
                                     AAAlign align = AA_LEFT, int16_t areaW = 0) {
   if (!_aaDisplay || !str) return;
+  bool manageWrite = !_aaBatchWriteActive;
 
   int16_t startX = x;
   if (align == AA_CENTER || align == AA_RIGHT) {
@@ -157,7 +170,7 @@ static void AAFont_drawStringScaled(const AAFont* font, const char* str,
   uint8_t first = font->first, last = font->last;
   int16_t curX  = startX;
 
-  _aaDisplay->startWrite();
+  if (manageWrite) AAFont_beginBatch();
 
   for (const char* p = str; *p; p++) {
     uint8_t c = (uint8_t)*p;
@@ -196,5 +209,5 @@ static void AAFont_drawStringScaled(const AAFont* font, const char* str,
     curX += (int16_t)(g.xAdvance * scale_x16 + 8) / 16;
   }
 
-  _aaDisplay->endWrite();  // triggert refresh thread → dsi_lcdDrawImage()
+  if (manageWrite) AAFont_endBatch();  // triggert refresh thread → dsi_lcdDrawImage()
 }

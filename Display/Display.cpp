@@ -1273,6 +1273,7 @@ static void drawDotMatrixString(const AAFont* /*font*/, const char* str,
                                 uint16_t fgColor, AAAlign align = AA_LEFT, int16_t areaW = 0,
                                 uint8_t pitch = 3, uint8_t dotR = 1, uint8_t charGap = 1) {
   if (!str || !_aaDisplay) return;
+  bool manageWrite = !_aaBatchWriteActive;
   int16_t startX = x;
   int16_t tw = dotMatrixWidth(str, pitch, charGap);
   if (align == AA_CENTER || align == AA_RIGHT) {
@@ -1285,7 +1286,7 @@ static void drawDotMatrixString(const AAFont* /*font*/, const char* str,
   uint16_t coreCol = dimC(scale565(fgColor, 100));
   uint16_t glowCol  = dimC(scale565(fgColor,  62));
 
-  _aaDisplay->startWrite();
+  if (manageWrite) AAFont_beginBatch();
 
   for (const char* p = str; *p; ++p) {
     const uint8_t* rows = glyph5x7(*p, *(p + 1));
@@ -1301,7 +1302,7 @@ static void drawDotMatrixString(const AAFont* /*font*/, const char* str,
     curX += (5 * pitch + charGap);
   }
 
-  _aaDisplay->endWrite();
+  if (manageWrite) AAFont_endBatch();
 }
 
 static void drawDotMatrixStringScaled(const AAFont* /*font*/, const char* str,
@@ -1461,6 +1462,7 @@ static void drawMainPrimaryValue() {
   // Tijdens crossfade fadet de volume-alpha mee met panelBlend
   #define VOL_ALPHA(c) (xfadeState != XF_IDLE ? alpha565((c), panelBlend) : (c))
 
+  AAFont_beginBatch();
   if (mainFontMode != FONT_STANDARD) clearPrimaryValueTextArea();
 
   if (currentVolume == VOL_OFF && !isMuted) {
@@ -1515,6 +1517,7 @@ static void drawMainPrimaryValue() {
       AAFont_drawString(AA_SM, unit, numX + numW + UNIT_GAP, VAL_Y, VOL_ALPHA(dimC(scale565(volColor(), unitPct))), C_BG, AA_LEFT, UNIT_W);
     }
   }
+  AAFont_endBatch();
   #undef VOL_ALPHA
 }
 
