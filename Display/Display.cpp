@@ -269,6 +269,12 @@ static uint8_t  primaryValueCacheUnitsMode = 0xFF;
 static bool     primaryValueCacheLarge = false;
 static char     primaryValueCacheValue[16] = {0};
 static char     primaryValueCacheUnit[8] = {0};
+static bool     detailAttenCacheValid = false;
+static char     detailAttenCacheValue[14] = {0};
+static uint16_t detailAttenCacheColor = 0;
+static bool     detailBalanceCacheValid = false;
+static char     detailBalanceCacheValue[14] = {0};
+static uint16_t detailBalanceCacheColor = 0;
 // Crossfade state: IDLE → FADE_OUT → SNAP → FADE_IN → IDLE
 enum XfadeState : uint8_t { XF_IDLE, XF_FADE_OUT, XF_FADE_IN };
 static XfadeState xfadeState     = XF_IDLE;
@@ -475,6 +481,7 @@ static void drawMainPrimaryValue();
 static void drawScreenHeader(const char* title);
 static void clearAndDrawInputName();
 static void clearPrimaryValueZone();
+static void invalidateDetailValueCaches();
 static bool isDefaultVGToggle(const char* label);
 static uint16_t mainHairlineColor();
 static void drawMainHairline();
@@ -1501,6 +1508,16 @@ static void clearPrimaryValueTextArea() {
 // Wist volumezone + panelzone — gebruikt door crossfade
 static void clearMainContentZone() {
   display.fillRect(0, 155, SCREEN_W, SCREEN_H - 155, C_BG);
+  invalidateDetailValueCaches();
+}
+
+static void invalidateDetailValueCaches() {
+  detailAttenCacheValid = false;
+  detailAttenCacheValue[0] = '\0';
+  detailAttenCacheColor = 0;
+  detailBalanceCacheValid = false;
+  detailBalanceCacheValue[0] = '\0';
+  detailBalanceCacheColor = 0;
 }
 
 static void redrawFixedSlotVolumeStringDiff(const AAFont* font, bool orbitron,
@@ -2051,6 +2068,7 @@ static void drawSimpleDetailPanel() {
   uint8_t pb = panelBlend;
 
   display.fillRect(0, DP_TOP, SCREEN_W, SCREEN_H - DP_TOP, C_BG);
+  invalidateDetailValueCaches();
 
   if (pb == 0) return;  // Gewist maar niets tekenen
 
@@ -2087,6 +2105,14 @@ static void drawSimpleDetailPanel() {
   AAFont_drawString(AA_XXS, attenStr, DP_VAL_R, DP_ROW1, valC, C_BG, AA_LEFT, 185);
   AAFont_drawString(AA_XXS, "Balance",    DP_LBL_R, DP_ROW2, lblC, C_BG, AA_LEFT, 140);
   AAFont_drawString(AA_XXS, balStr,   DP_VAL_R, DP_ROW2, balC, C_BG, AA_LEFT, 185);
+  strncpy(detailAttenCacheValue, attenStr, sizeof(detailAttenCacheValue) - 1);
+  detailAttenCacheValue[sizeof(detailAttenCacheValue) - 1] = '\0';
+  detailAttenCacheColor = valC;
+  detailAttenCacheValid = true;
+  strncpy(detailBalanceCacheValue, balStr, sizeof(detailBalanceCacheValue) - 1);
+  detailBalanceCacheValue[sizeof(detailBalanceCacheValue) - 1] = '\0';
+  detailBalanceCacheColor = balC;
+  detailBalanceCacheValid = true;
 }
 
 
@@ -2098,10 +2124,19 @@ static void redrawDetailAttenCard() {
 
   char attenStr[14];
   sprintf(attenStr, "%.1f dB", targetEffAttenDb());
+  if (detailAttenCacheValid &&
+      detailAttenCacheColor == valC &&
+      strcmp(detailAttenCacheValue, attenStr) == 0) {
+    return;
+  }
 
   // Wis alleen de waardezone
   display.fillRect(DP_VAL_R - 14, DP_ROW1 - 20, SCREEN_W - (DP_VAL_R - 14) - 4, 24, C_BG);
   AAFont_drawString(AA_XXS, attenStr, DP_VAL_R, DP_ROW1, valC, C_BG, AA_LEFT, 185);
+  strncpy(detailAttenCacheValue, attenStr, sizeof(detailAttenCacheValue) - 1);
+  detailAttenCacheValue[sizeof(detailAttenCacheValue) - 1] = '\0';
+  detailAttenCacheColor = valC;
+  detailAttenCacheValid = true;
 }
 
 static void redrawDetailBalanceCard() {
@@ -2114,10 +2149,19 @@ static void redrawDetailBalanceCard() {
   uint16_t balValColor;
   formatDetailBalance(balStr, sizeof(balStr), &balValColor);
   uint16_t drawCol = (balValColor == C_STATUS_ERR || balValColor == dimC(C_STATUS_ERR)) ? balValColor : valC;
+  if (detailBalanceCacheValid &&
+      detailBalanceCacheColor == drawCol &&
+      strcmp(detailBalanceCacheValue, balStr) == 0) {
+    return;
+  }
 
   // Wis alleen de waardezone
   display.fillRect(DP_VAL_R - 14, DP_ROW2 - 20, SCREEN_W - (DP_VAL_R - 14) - 4, 24, C_BG);
   AAFont_drawString(AA_XXS, balStr, DP_VAL_R, DP_ROW2, drawCol, C_BG, AA_LEFT, 185);
+  strncpy(detailBalanceCacheValue, balStr, sizeof(detailBalanceCacheValue) - 1);
+  detailBalanceCacheValue[sizeof(detailBalanceCacheValue) - 1] = '\0';
+  detailBalanceCacheColor = drawCol;
+  detailBalanceCacheValid = true;
 }
 
 
