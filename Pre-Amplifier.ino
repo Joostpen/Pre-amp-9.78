@@ -153,6 +153,7 @@ void loop() {
   handleStandbyLed();
   handleRemoteTrigger();
   tickSettings();
+  tickGainRestore();
 
   if (!inStandby) {
     handleMuteButton();

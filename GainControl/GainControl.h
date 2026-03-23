@@ -34,6 +34,9 @@ void applyGainLF();           // LF gain naar hardware
 void applyGainLFOUT();        // LF OUT -6dB schakelaar naar hardware
 void applyGainMFOUT();        // MF OUT -6dB schakelaar naar hardware
 void applyGainAll();          // Alle drie tegelijk (bij init)
+void beginGainRestore();      // Non-blocking herstel van LF/LF OUT/MF OUT in gefaseerde stappen
+void tickGainRestore();       // Aanroepen vanuit loop() voor non-blocking herstel
+bool isGainRestoreActive();   // True zolang non-blocking gain-herstel bezig is
 void applyBypassLF();         // Transformer bypass LF naar hardware (GPA0)
 void applyBypassMF();         // Transformer bypass MF naar hardware (GPA1)
 void standbyRelaysOff();      // Alle audio-relais hardware uit bij standby

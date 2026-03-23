@@ -201,6 +201,8 @@ static ScreenState currentScreen = SCR_BOOT;
 static uint32_t bootStartTime     = 0;
 static uint32_t warmupStartTime   = 0;
 static bool     bootAudioPathRestored = false;
+static bool     bootGainRestoreStarted = false;
+static bool     warmupGainRestoreStarted = false;
 #define BOOT_AUDIO_RESTORE_MS  6000UL
 
 // ── Volume ramp-up bij standby-exit ──────────────────────────────────────────
@@ -1061,7 +1063,6 @@ void notifyActivity() {
     if (currentScreen == SCR_MAIN) drawMainScreen();
     if (!inStandby) {
       applyVolume();
-      applyGainAll();
     }
   } else if (needPanelRestore && currentScreen == SCR_MAIN && detailMode > 0) {
     drawSimpleDetailPanel();
@@ -3539,6 +3540,7 @@ void startWarmup() {
   // — voeding is nu net aangezet, chips nog niet stabiel
   currentScreen = SCR_WARMUP;
   warmupStartTime = millis();
+  warmupGainRestoreStarted = false;
   setScreenBrightness(activeBrightness());
   drawWarmupScreen();
 }
@@ -3615,6 +3617,7 @@ void initDisplay() {
   backlight.begin();
   bootStartTime = millis();
   bootAudioPathRestored = false;
+  bootGainRestoreStarted = false;
   screenBrightness = activeBrightness();
   setScreenBrightness(activeBrightness());
   // isMuted wordt NIET hier gezet — staat is eigendom van de relay state machine
@@ -3744,13 +3747,17 @@ void updateDisplay() {
 
   if (currentScreen == SCR_BOOT) {
     if (!bootAudioPathRestored && (now - bootStartTime) >= BOOT_AUDIO_RESTORE_MS) {
-      applyGainAll();
-      setInput(currentInput);   // herstelt ook bypass bits
-      applyVolume();
-      bootAudioPathRestored = true;
+      if (!bootGainRestoreStarted) {
+        beginGainRestore();
+        bootGainRestoreStarted = true;
+      } else if (!isGainRestoreActive()) {
+        setInput(currentInput);   // herstelt ook bypass bits
+        applyVolume();
+        bootAudioPathRestored = true;
+      }
     }
 
-    if ((now - bootStartTime) >= BOOT_DURATION_MS) {
+    if (bootAudioPathRestored && (now - bootStartTime) >= BOOT_DURATION_MS) {
       syncRelayState(muteOnStartup);
       currentVolume = savedVolume[currentInput];
       applyVolume();  // Session-start volume = startup baseline
@@ -3761,13 +3768,18 @@ void updateDisplay() {
   if (currentScreen == SCR_WARMUP) {
     // Wacht tot voeding stabiel is, initialiseer dan MCP chips opnieuw
     if ((now - warmupStartTime) >= REMOTE_TRIG_DELAY) {
-      // MCP chips waren spanningloos tijdens standby — volledig herintialiseren
-      mcpLinkOk = reinitMCP();
-      syncRelayState(isMuted);
-      applyGainAll();
-      setInput(currentInput);   // herstelt ook bypass bits
-      applyVolume();
-      currentScreen = SCR_MAIN; lastActivityMs = millis(); drawMainScreen();
+      if (!warmupGainRestoreStarted) {
+        // MCP chips waren spanningloos tijdens standby — volledig herintialiseren
+        mcpLinkOk = reinitMCP();
+        syncRelayState(isMuted);
+        beginGainRestore();
+        warmupGainRestoreStarted = true;
+      } else if (!isGainRestoreActive()) {
+        setInput(currentInput);   // herstelt ook bypass bits
+        applyVolume();
+        if (!isMuted) muteRelay(false);
+        currentScreen = SCR_MAIN; lastActivityMs = millis(); drawMainScreen();
+      }
     }
     return;
   }

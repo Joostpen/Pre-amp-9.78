@@ -34,6 +34,30 @@ static void writeGPB(uint8_t val) {
   writeRegister(I2C_ADDR_CONTROL, GPIOB, val);
 }
 
+static void applyGainLFOUTImmediate() {
+  uint8_t gpb = controlPortB;
+  if (gainLFOUT == 0) gpb |=  0x80;
+  else                gpb &= ~0x80;
+  writeGPB(gpb);
+}
+
+static void applyGainMFOUTImmediate() {
+  uint8_t gpb = controlPortB;
+  if (gainMFOUT == 0) gpb |=  0x40;
+  else                gpb &= ~0x40;
+  writeGPB(gpb);
+}
+
+enum GainRestorePhase : uint8_t {
+  GAIN_RESTORE_IDLE = 0,
+  GAIN_RESTORE_WAIT_PRE_LFOUT,
+  GAIN_RESTORE_WAIT_POST_LFOUT,
+  GAIN_RESTORE_WAIT_POST_MFOUT
+};
+
+static GainRestorePhase gainRestorePhase = GAIN_RESTORE_IDLE;
+static uint32_t         gainRestorePhaseMs = 0;
+
 // ── Hardware apply ────────────────────────────────────────────────────────────
 void applyGainLF() {
   int8_t clamped = constrain(gainLF, GAIN_MIN[0], GAIN_MAX[0]);
@@ -45,11 +69,7 @@ void applyGainLF() {
 void applyGainLFOUT() {
   muteRelay(true);                          // relay dicht via state machine
   delay(10);                                // relay settle
-  uint8_t gpb = controlPortB;              // lees shadow — niet muteren via |=
-  // GPB7: relay actief (bit hoog) = 0dB, relay inactief (bit laag) = -6dB (default)
-  if (gainLFOUT == 0) gpb |=  0x80;
-  else                gpb &= ~0x80;
-  writeGPB(gpb);                            // writeGPB updatet controlPortB
+  applyGainLFOUTImmediate();
   delay(20);                                // relay settle
   if (!isMuted) muteRelay(false);           // herstel via state machine
 }
@@ -57,17 +77,55 @@ void applyGainLFOUT() {
 void applyGainMFOUT() {
   muteRelay(true);
   delay(10);
-  uint8_t gpb = controlPortB;
-  // GPB6: relay actief (bit hoog) = 0dB, relay inactief (bit laag) = -6dB (default)
-  if (gainMFOUT == 0) gpb |=  0x40;
-  else                gpb &= ~0x40;
-  writeGPB(gpb);
+  applyGainMFOUTImmediate();
   delay(20);                                // relay settle
   if (!isMuted) muteRelay(false);           // herstel via state machine
 }
 
-// Roep applyGainAll() ALLEEN aan vanuit setup() — de functie bevat blocking delays
-// (~60ms totaal) via applyGainLFOUT/MFOUT en mag de loop() niet blokkeren.
+void beginGainRestore() {
+  if (gainRestorePhase != GAIN_RESTORE_IDLE) return;
+
+  muteRelay(true);
+  applyGainLF();
+  gainRestorePhase   = GAIN_RESTORE_WAIT_PRE_LFOUT;
+  gainRestorePhaseMs = millis();
+}
+
+void tickGainRestore() {
+  if (gainRestorePhase == GAIN_RESTORE_IDLE) return;
+
+  uint32_t now = millis();
+  switch (gainRestorePhase) {
+    case GAIN_RESTORE_WAIT_PRE_LFOUT:
+      if ((now - gainRestorePhaseMs) < 10) return;
+      applyGainLFOUTImmediate();
+      gainRestorePhase   = GAIN_RESTORE_WAIT_POST_LFOUT;
+      gainRestorePhaseMs = now;
+      return;
+
+    case GAIN_RESTORE_WAIT_POST_LFOUT:
+      if ((now - gainRestorePhaseMs) < 20) return;
+      applyGainMFOUTImmediate();
+      gainRestorePhase   = GAIN_RESTORE_WAIT_POST_MFOUT;
+      gainRestorePhaseMs = now;
+      return;
+
+    case GAIN_RESTORE_WAIT_POST_MFOUT:
+      if ((now - gainRestorePhaseMs) < 20) return;
+      gainRestorePhase   = GAIN_RESTORE_IDLE;
+      gainRestorePhaseMs = 0;
+      return;
+
+    case GAIN_RESTORE_IDLE:
+      return;
+  }
+}
+
+bool isGainRestoreActive() {
+  return gainRestorePhase != GAIN_RESTORE_IDLE;
+}
+
+// Blocking compatibiliteitshelper — gebruik alleen voor expliciete synchrone paden.
 void applyGainAll() {
   applyGainLF();
   applyGainLFOUT();
