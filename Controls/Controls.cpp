@@ -9,6 +9,7 @@
 #include "MCP23017.h"
 #include "VolumeControl.h"
 #include "Display.h"
+#include "GainControl.h"
 #include "InputControl.h" // voor setInput()
 #include "Settings.h"     // warmStandbyEnabled setting
 
