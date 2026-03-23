@@ -1119,6 +1119,8 @@ static void clearMainNameArea() {
 void showSwitchingScreen(uint8_t inputIdx) {
   // Geen fillScreen — detail panel en rij 2 blijven staan.
   // Alleen de inputnaam-zone en volumezone worden gewist en herschreven.
+  // Buffering maakt de overgang zichtbaar rustiger en voorkomt half-opgebouwde frames.
+  display.startBuffering();
 
   clearMainNameArea();
   uint32_t nowMs = millis();
@@ -1142,6 +1144,7 @@ void showSwitchingScreen(uint8_t inputIdx) {
 
   clearPrimaryValueZone();
   drawMainPrimaryValue();
+  display.endBuffering();
 }
 
 
@@ -3816,16 +3819,6 @@ void updateDisplay() {
       && (now - lastActivityMs) >= profileCalmAfterMs()
       && (now - lastActivityMs) < (uint32_t)dimDelaySec * 1000UL) {
     mainCalmMode = true;
-  }
-
-  if (currentScreen == SCR_MAIN && switchingInput && !isInputSwitchPending()
-      && switchOverlayUntilMs > 0 && now < switchOverlayUntilMs
-      && (switchOverlayUntilMs - now) <= 300UL) {
-    static uint32_t lastSwitchFadeMs = 0;
-    if ((now - lastSwitchFadeMs) >= 33) {
-      lastSwitchFadeMs = now;
-      showSwitchingScreen(currentInput);
-    }
   }
 
   if (currentScreen == SCR_MAIN && switchingInput && !isInputSwitchPending()
