@@ -156,6 +156,7 @@ void handleStandbyButton() {
 
 // Interne helper: standby-in met expliciete warm/koud keuze
 static void enterStandbyMode(bool warm) {
+  cancelInputSwitch();
   inStandby          = true;
   enteredWarmStandby = warm;
   isWarmStandbyActive = warm;
@@ -191,7 +192,6 @@ void toggleStandby() {
   standbyExitTime    = millis();
   remoteTriggerFired = false;
   resetSessionInputVolumes();
-  currentVolume = savedVolume[currentInput];
   isMuted = muteOnStartup;
 
   if (enteredWarmStandby) {

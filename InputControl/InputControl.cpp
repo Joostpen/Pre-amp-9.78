@@ -13,6 +13,7 @@
 #include "Controls.h"
 #include "MCP23017.h"
 #include "Display.h"
+#include "Settings.h"
 #include "VolumeControl.h"
 
 // Extern globals
@@ -31,7 +32,10 @@ extern bool bypassLF;
 extern bool bypassMF;
 
 // Volume per ingang
-uint8_t savedVolume[INPUT_COUNT] = {231, 231, 231, 231, 231};
+uint8_t savedVolume[INPUT_COUNT] = {
+  SETTINGS_DEFAULT.savedVolume[0], SETTINGS_DEFAULT.savedVolume[1], SETTINGS_DEFAULT.savedVolume[2],
+  SETTINGS_DEFAULT.savedVolume[3], SETTINGS_DEFAULT.savedVolume[4]
+};
 
 // Poortnamen
 static const char* INPUT_TYPES[INPUT_COUNT] = { "XLR","XLR","XLR","RCA","RCA" };
@@ -115,6 +119,14 @@ void adjustInput(int delta) {
 void selectInput(uint8_t input) {
   if (inStandby) return;
   queueInputSwitch(input);
+}
+
+void cancelInputSwitch() {
+  if (!switchPending) return;
+
+  switchPending = false;
+  pendingInput  = currentInput;
+  setSwitchingInput(false);
 }
 
 // ── tickInputSwitch ─────────────────────────────────────────────────────────

@@ -23,7 +23,7 @@ extern uint8_t  irCommandMap[IR_ACTION_COUNT];
 // ── inputOffset: volume-offset per ingang ────────────────────────────────────
 // Gedefinieerd hier; extern gedeclareerd in Settings.h
 int8_t inputOffset[INPUT_COUNT] = { 0, 0, 0, 0, 0 };
-uint8_t maxVolume = 243;  // +6.0 dB default
+uint8_t maxVolume = SETTINGS_DEFAULT.maxVolume;
 bool remoteTriggerEnabled = true;
 bool largeFontOnDim       = true;
 uint8_t encSensitivity    = 1;  // neutral default
@@ -202,8 +202,11 @@ void flushSettings() {
 }
 
 void persistCurrentInputForStandby() {
+  bool inputChanged = (persistedCurrentInput != currentInput);
   persistedCurrentInput = currentInput;
-  flushSettings();
+  if (inputChanged || settingsDirty) {
+    flushSettings();
+  }
 }
 
 // ── saveSettings: markeert dirty, schrijft pas na debounce ───────────────────
