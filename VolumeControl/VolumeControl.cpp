@@ -23,6 +23,11 @@ extern uint8_t  maxVolume;  // Max volume beveiliging (Settings.cpp)
 // Gedefinieerd in Settings.cpp, extern gedeclareerd via Settings.h
 extern int8_t inputOffset[INPUT_COUNT];
 
+uint8_t effectiveMaxForInput(uint8_t input) {
+  if (input >= INPUT_COUNT) return VOL_MIN;
+  return (uint8_t)constrain((int)maxVolume - (int)inputOffset[input], VOL_MIN, VOL_MAX);
+}
+
 void setVolume(uint8_t left, uint8_t right) {
   // Hardware kanaaltoewijzing per schema (Excel pin layout):
   // GPB (OLATB, reg 0x15) = Links (L), GPA (OLATA, reg 0x14) = Rechts (R)
@@ -41,7 +46,7 @@ void applyVolume() {
 
   // Pas input-offset toe (offset in 0.5 dB stappen = 1 hardware-stap)
   int base = (int)currentVolume + (int)inputOffset[currentInput];
-  base = constrain(base, VOL_MIN, VOL_MAX);
+  base = constrain(base, VOL_MIN, (int)effectiveMaxForInput(currentInput));
 
   int leftVol  = base;
   int rightVol = base;
@@ -109,8 +114,7 @@ void adjustVolume(int delta) {
   // inputOffset stappen zijn gelijk aan volume-stappen (beide 0.5 dB).
   // Een +4 offset betekent dat currentVolume maximaal (maxVolume - 4) mag zijn
   // zodat de hardware nooit boven maxVolume uitkomt.
-  int8_t  off        = inputOffset[currentInput];
-  int     effectiveMax = constrain((int)maxVolume - (int)off, VOL_MIN, VOL_MAX);
+  int effectiveMax = (int)effectiveMaxForInput(currentInput);
 
   int newVol;
   if (currentVolume == VOL_OFF) {
@@ -212,5 +216,4 @@ void adjustBalanceRight(bool isRepeat) {
 
   showBalanceBar();  // tekent balk en detail panel
 }
-
 

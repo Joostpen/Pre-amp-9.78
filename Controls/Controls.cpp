@@ -160,7 +160,7 @@ static void enterStandbyMode(bool warm) {
   enteredWarmStandby = warm;
   isWarmStandbyActive = warm;
   standbyEnterTime   = millis();
-  flushSettings();
+  persistCurrentInputForStandby();
   setVolume(0x00, 0x00);        // hardware volume naar 0 vóór relay schakelt
   applyRelayState(true);        // mute relay dicht
   standbyRelaysOff();           // alle audio relais uit, volume chips op 0x00
@@ -190,7 +190,8 @@ void toggleStandby() {
   digitalWrite(PIN_STANDBY_OFF, HIGH);
   standbyExitTime    = millis();
   remoteTriggerFired = false;
-  currentVolume = (currentInput == surroundInput) ? 231 : startupVolume[currentInput];
+  resetSessionInputVolumes();
+  currentVolume = savedVolume[currentInput];
   isMuted = muteOnStartup;
 
   if (enteredWarmStandby) {

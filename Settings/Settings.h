@@ -13,7 +13,7 @@
  *
  * Gebruik:
  *   loadSettings()  — aanroepen in setup(), voor initDisplay()
- *   saveSettings()  — aanroepen na elke gebruikersingreep
+ *   saveSettings()  — aanroepen na menu-instellingen; runtime/session state blijft RAM-only
  */
 
 #ifndef SETTINGS_H
@@ -39,7 +39,7 @@ struct Settings {
   uint8_t  surroundInput;                // Surround pass ingang (0..INPUT_COUNT-1)
   uint8_t  currentVolume;                // Volume (0x00..0xFF)
   uint8_t  startupVolume[INPUT_COUNT];   // Startup volume per ingang (0x00..0xFF)
-  uint8_t  maxVolume;                    // Max volume beveiliging (0x00..0xFF, default +6 dB = 243)
+  uint8_t  maxVolume;                    // Max volume beveiliging (0x00..0xFF, default 0.0 dB = 231)
   int8_t   balanceOffset;                // Balans (-(BALANCE_MAX+1)..+(BALANCE_MAX+1), +1 stap = kanaal-mute)
   uint8_t  currentInput;                 // Actieve ingang (0..INPUT_COUNT-1)
   uint8_t  savedVolume[INPUT_COUNT];      // Volume per ingang
@@ -61,7 +61,7 @@ struct Settings {
   bool     bypassLF;                     // true = transformer bypass LF actief (GPA0)
   bool     bypassMF;                     // true = transformer bypass MF actief (GPA1)
   bool     remoteTriggerEnabled;         // true = remote trigger actief na warmup delay
-  bool     largeFontOnDim;               // true = groot font bij panel-suppress op dim
+  bool     largeFontOnDim;               // true = groot font als detailpanel verborgen is
   uint8_t  encSensitivity;               // Encoder gevoeligheid: 0=low 1=neutral 2=high
   uint8_t  reservedFlags2;               // Toekomstige booleans (bit 0..7)
   int8_t   inputOffset[INPUT_COUNT];     // Volume-offset per ingang in 0.5 dB stappen (-12..+12 = ±6 dB)
@@ -79,12 +79,12 @@ static const Settings SETTINGS_DEFAULT = {
   -12,    // gainLFOUT  =  -6.0 dB
   -12,    // gainMFOUT  =  -6.0 dB
     4,    // surroundInput = RCA-2
-  231,    // currentVolume = 0 dB
-  {231, 231, 231, 231, 231},  // startupVolume per ingang = 0 dB
-  243,    // maxVolume     = +6.0 dB
+  128,    // currentVolume = -51.5 dB
+  {128, 128, 128, 128, 128},  // startupVolume per ingang = -51.5 dB
+  231,    // maxVolume     = 0.0 dB
     0,    // balanceOffset = gecentreerd
     0,    // currentInput  = ingang 1 (DAC)
-  {231, 231, 231, 231, 231},  // savedVolume per ingang
+  {128, 128, 128, 128, 128},  // savedVolume per ingang
    30,    // dimDelaySec = 30 seconden
    50,    // dimPercent  = 50%
    10,    // deepDimDelayMin = 10 minuten
@@ -103,13 +103,20 @@ static const Settings SETTINGS_DEFAULT = {
  false,    // bypassLF = transformer bypass LF uit (default)
  false,    // bypassMF = transformer bypass MF uit (default)
   true,    // remoteTriggerEnabled = trigger actief (default)
-  true,    // largeFontOnDim = groot font bij dim (default)
+  true,    // largeFontOnDim = groot font zonder detailpanel (default)
   1,       // encSensitivity = neutral (default)
   0x00,    // reservedFlags2
   {0, 0, 0, 0, 0},  // inputOffset per ingang = 0 dB
-  {IR_PROTOCOL_ANY, IR_PROTOCOL_ANY, IR_PROTOCOL_ANY, IR_PROTOCOL_ANY, IR_PROTOCOL_ANY, IR_PROTOCOL_ANY, IR_PROTOCOL_ANY, IR_PROTOCOL_ANY},
-  {IR_ADDRESS, IR_ADDRESS, IR_ADDRESS, IR_ADDRESS, IR_ADDRESS, IR_ADDRESS, IR_ADDRESS, IR_ADDRESS},
-  {IR_CMD_VOL_UP, IR_CMD_VOL_DOWN, IR_CMD_INPUT_UP, IR_CMD_INPUT_DOWN, IR_CMD_BAL_LEFT, IR_CMD_BAL_RIGHT, IR_CMD_MUTE, IR_CMD_STANDBY},
+  {IR_PROTOCOL_ANY, IR_PROTOCOL_ANY, IR_PROTOCOL_ANY, IR_PROTOCOL_ANY,
+   IR_PROTOCOL_ANY, IR_PROTOCOL_ANY, IR_PROTOCOL_ANY, IR_PROTOCOL_ANY,
+   IR_PROTOCOL_UNKNOWN, IR_PROTOCOL_UNKNOWN, IR_PROTOCOL_UNKNOWN,
+   IR_PROTOCOL_UNKNOWN, IR_PROTOCOL_UNKNOWN},
+  {IR_ADDRESS, IR_ADDRESS, IR_ADDRESS, IR_ADDRESS,
+   IR_ADDRESS, IR_ADDRESS, IR_ADDRESS, IR_ADDRESS,
+   0, 0, 0, 0, 0},
+  {IR_CMD_VOL_UP, IR_CMD_VOL_DOWN, IR_CMD_INPUT_UP, IR_CMD_INPUT_DOWN,
+   IR_CMD_BAL_LEFT, IR_CMD_BAL_RIGHT, IR_CMD_MUTE, IR_CMD_STANDBY,
+   0, 0, 0, 0, 0},
     0     // crc wordt berekend bij opslaan
 };
 
@@ -144,7 +151,8 @@ extern uint8_t  maxVolume;
 // ── Publieke functies ─────────────────────────────────────────────────────────
 void loadSettings();
 void saveSettings();
-void flushSettings();   // Direct naar flash schrijven — gebruik voor expliciete gebruikersinstellingen   // Markeert dirty, schrijft na 2s inactiviteit
+void flushSettings();   // Direct naar flash schrijven — gebruik voor expliciete/confirmed save-acties
+void persistCurrentInputForStandby(); // Sla alleen de actieve ingang op bij standby-ingang
 void tickSettings();   // Aanroepen vanuit loop()
 
 #endif
