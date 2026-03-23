@@ -249,6 +249,15 @@ static void handleThemeMotionTouch(int16_t tx, int16_t ty) {
 static void handleSystemTouch(int16_t tx, int16_t ty) {
   if (touchedHdrBack(tx,ty)) { drawMainMenu(); return; }
 
+  const int16_t sysToggleX = 16;
+  const int16_t sysToggleW = SCREEN_W - 32;
+  if (ty >= SYS_Y4 && ty < SYS_Y4 + SYS_TOG_H &&
+      tx >= sysToggleX && tx < sysToggleX + sysToggleW) {
+    cycleAutoStandbySetting();
+    saveAndRedraw(drawSystemScreen);
+    return;
+  }
+
   // 4 knoppen onderaan
   const int16_t SYS_N3 = 4;
   const int16_t sbw2 = menuBtnW(SYS_N3);

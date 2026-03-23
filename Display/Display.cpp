@@ -3403,22 +3403,49 @@ static void drawSysRow(int16_t y, const char* label, const char* value,
 
 // Systeem toggle-rij: grote knop, dubbele hoogte, label boven waarde onder
 #define SYS_TOG_H (2 * SR_H + SYS_ROW_G)  // 118px — gelijk aan volume menu knoppen
-static void drawSysToggleRow(int16_t y, const char* label, bool enabled) {
+static const uint16_t AUTO_STANDBY_OPTIONS_MIN[] = {0, 15, 30, 45, 60, 90, 120};
+
+static const char* autoStandbyLabel(uint16_t minutes) {
+  switch (minutes) {
+    case 0:   return "Off";
+    case 15:  return "15 min";
+    case 30:  return "30 min";
+    case 45:  return "45 min";
+    case 60:  return "60 min";
+    case 90:  return "90 min";
+    case 120: return "120 min";
+    default:  return "60 min";
+  }
+}
+
+static void cycleAutoStandbySetting() {
+  size_t currentIdx = 0;
+  for (size_t i = 0; i < sizeof(AUTO_STANDBY_OPTIONS_MIN) / sizeof(AUTO_STANDBY_OPTIONS_MIN[0]); ++i) {
+    if (AUTO_STANDBY_OPTIONS_MIN[i] == autoStandbyDelayMin) {
+      currentIdx = i;
+      break;
+    }
+  }
+  currentIdx = (currentIdx + 1) % (sizeof(AUTO_STANDBY_OPTIONS_MIN) / sizeof(AUTO_STANDBY_OPTIONS_MIN[0]));
+  autoStandbyDelayMin = AUTO_STANDBY_OPTIONS_MIN[currentIdx];
+}
+
+static void drawSysToggleRow(int16_t y, const char* label, const char* value, bool changed = false) {
   const int16_t X = 16, W = SCREEN_W - 32;
   const int16_t PAD = 8;
   int16_t by = y + PAD, bh = SYS_TOG_H - PAD*2;
   uint16_t bg  = dimC(VGC_BG_NORM);
   uint16_t bdr = dimC(VGC_BDR_NORM);  // kader altijd zelfde — drukknop
   uint16_t lc  = dimC(VGC_LBL_NORM);
-  uint16_t vc  = dimC(VGC_VAL_SEL);   // waarde altijd helder, label zegt wat het is
+  uint16_t vc  = changed ? dimC(VGC_VAL_CHG) : dimC(VGC_VAL_SEL);
   display.fillRoundRect(X, y, W, SYS_TOG_H, UI_CARD_R, bg);
   display.fillRoundRect(X, by, W, bh, UI_CARD_R, bg);
   display.drawRoundRect(X,   by,   W,   bh,   UI_CARD_R, bdr);
   display.drawRoundRect(X+1, by+1, W-2, bh-2, UI_CARD_R, bdr);
   int16_t lblY = by + bh/3 + 4;
   int16_t valY = by + bh*2/3 + 8;
-  AAFont_drawString(AA_XXS, label,                   X + UI_PAD_L, lblY, lc, bg, AA_CENTER, W);
-  AAFont_drawString(AA_XXS, enabled ? "on" : "off",  X + UI_PAD_L, valY, vc, bg, AA_CENTER, W);
+  AAFont_drawString(AA_XXS, label, X + UI_PAD_L, lblY, lc, bg, AA_CENTER, W);
+  AAFont_drawString(AA_XXS, value, X + UI_PAD_L, valY, vc, bg, AA_CENTER, W);
 }
 
 void drawSystemScreen() {
@@ -3438,6 +3465,8 @@ void drawSystemScreen() {
              true, !diagBootDegraded);
   sprintf(buf, "%u", (unsigned)diagRecoveryAttempts);
   drawSysRow(SYS_ROW3, "Recovery tries", buf);
+  drawSysToggleRow(SYS_Y4, "Auto standby", autoStandbyLabel(autoStandbyDelayMin),
+                   autoStandbyDelayMin != SETTINGS_DEFAULT.autoStandbyDelayMin);
 
   // 4 knoppen onderaan
   const int16_t SYS_N2 = 4;
@@ -4071,6 +4100,13 @@ void updateDisplay() {
   if (currentScreen != SCR_MAIN && currentScreen != SCR_BOOT && currentScreen != SCR_WARMUP
       && lastActivityMs > 0 && (now - lastActivityMs) >= MENU_AUTOCLOSE_MS) {
     restoreMainDisplay();
+  }
+
+  if (!inStandby && currentScreen != SCR_BOOT && currentScreen != SCR_WARMUP
+      && autoStandbyDelayMin > 0 && lastActivityMs > 0
+      && (now - lastActivityMs) >= (uint32_t)autoStandbyDelayMin * 60000UL) {
+    toggleStandby();
+    return;
   }
 
   if (currentScreen == SCR_MAIN && !mainCalmMode && !inStandby && lastActivityMs > 0
