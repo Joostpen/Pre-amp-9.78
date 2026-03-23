@@ -1523,9 +1523,10 @@ static void redrawMatrixVolumeStringDiff(const char* prevStr, const char* nextSt
   char ch[2] = {'\0', '\0'};
   int16_t curX = x;
   const int16_t cellW = 5 * pitch + charGap;
+  const int16_t clearPad = dotR + 3;
   for (const char* pPrev = prevStr, *pNext = nextStr; *pNext; ++pPrev, ++pNext) {
     if (*pPrev != *pNext) {
-      clearPrimaryValueColumnRect(curX - 2, cellW + 4);
+      clearPrimaryValueColumnRect(curX - clearPad, cellW + 2 * clearPad);
       if (*pNext != ' ') {
         ch[0] = *pNext;
         drawDotMatrixStringScaled(AA_VOL, ch, curX, baseline, fgColor, AA_LEFT, cellW, 0, pitch, dotR, charGap);
@@ -1557,15 +1558,18 @@ static bool redrawMainPrimaryValueIncremental() {
   const uint8_t dotPitch = useLarge ? 17 : 14;
   const uint8_t dotR     = useLarge ?  6 :  5;
   const uint8_t dotGap   = useLarge ? 10 :  8;
+  const uint8_t unitDotPitch = useLarge ? 11 : 9;
+  const uint8_t unitDotR     = useLarge ?  4 : 3;
+  const uint8_t unitDotGap   = useLarge ?  7 : 5;
   uint8_t  volPct = (uint8_t)(55 + 45U * (255U - mainCalmBlend) / 255U);
   uint16_t vCol   = scale565(volColor(), volPct);
   VolSlotLayout layout = currentVolSlotLayout();
 
   AAFont_beginBatch();
   if (mainFontMode == FONT_MATRIX) {
-    const int16_t UNIT_GAP = useLarge ? 22 : 18;
+    const int16_t UNIT_GAP = useLarge ? 34 : 28;
     const int16_t numW = dotMatrixWidth(vs, dotPitch, dotGap);
-    const int16_t unitW = dotMatrixWidth(unit, dotPitch, dotGap);
+    const int16_t unitW = dotMatrixWidth(unit, unitDotPitch, unitDotGap);
     int16_t numX = (SCREEN_W - (numW + UNIT_GAP + unitW)) / 2;
     redrawMatrixVolumeStringDiff(primaryValueCacheValue, vs, numX, VAL_Y, vCol, dotPitch, dotR, dotGap);
   } else if (mainFontMode == FONT_ORBITRON) {
@@ -1601,6 +1605,9 @@ static void drawMainPrimaryValue() {
   const uint8_t dotPitch = useLarge ? 17 : 14;
   const uint8_t dotR     = useLarge ?  6 :  5;
   const uint8_t dotGap   = useLarge ? 10 :  8;
+  const uint8_t unitDotPitch = useLarge ? 11 : 9;
+  const uint8_t unitDotR     = useLarge ?  4 : 3;
+  const uint8_t unitDotGap   = useLarge ?  7 : 5;
   // Tijdens crossfade fadet de volume-alpha mee met panelBlend
   #define VOL_ALPHA(c) (xfadeState != XF_IDLE ? alpha565((c), panelBlend) : (c))
 
@@ -1630,13 +1637,13 @@ static void drawMainPrimaryValue() {
     if (mainFontMode == FONT_MATRIX) {
       char vs[16]; formatVolNumStrPadded(vs, currentVolume);
       const char* unit = currentVolUnitLabel();
-      const int16_t UNIT_GAP = useLarge ? 22 : 18;
+      const int16_t UNIT_GAP = useLarge ? 34 : 28;
       const int16_t numW = dotMatrixWidth(vs, dotPitch, dotGap);
-      const int16_t unitW = dotMatrixWidth(unit, dotPitch, dotGap);
+      const int16_t unitW = dotMatrixWidth(unit, unitDotPitch, unitDotGap);
       int16_t numX = (SCREEN_W - (numW + UNIT_GAP + unitW)) / 2;
       drawDotMatrixStringScaled(AA_VOL, vs, numX, VAL_Y, vCol, AA_LEFT, numW, scaleStd, dotPitch, dotR, dotGap);
       uint8_t unitPct = (uint8_t)(38 + 22U * (255U - mainCalmBlend) / 255U);
-      drawDotMatrixStringScaled(AA_VOL, unit, numX + numW + UNIT_GAP, VAL_Y, VOL_ALPHA(scale565(volColor(), unitPct)), AA_LEFT, unitW, scaleStd, dotPitch, dotR, dotGap);
+      drawDotMatrixStringScaled(AA_VOL, unit, numX + numW + UNIT_GAP, VAL_Y, VOL_ALPHA(scale565(volColor(), unitPct)), AA_LEFT, unitW, scaleStd, unitDotPitch, unitDotR, unitDotGap);
     } else if (mainFontMode == FONT_ORBITRON) {
       char vs[16]; formatVolNumStrPadded(vs, currentVolume);
       const char* unit = currentVolUnitLabel();
