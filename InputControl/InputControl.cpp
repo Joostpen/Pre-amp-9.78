@@ -67,10 +67,21 @@ void resetSessionInputVolumes() {
 
 // ── Debounce state ─────────────────────────────────────────────────────────
 #define INPUT_SETTLE_MS   400    // Wachttijd na laatste draai
+#define INPUT_RELAY_SETTLE_MS  8
+#define INPUT_UNMUTE_DELAY_MS 20
 
 static bool     switchPending = false;
 static uint8_t  pendingInput  = 0;
 static uint32_t lastAdjustMs  = 0;
+static uint32_t switchPhaseMs = 0;
+
+enum InputSwitchPhase : uint8_t {
+  SWITCH_WAIT_SETTLE = 0,
+  SWITCH_RELAY_SETTLE,
+  SWITCH_UNMUTE_DELAY
+};
+
+static InputSwitchPhase switchPhase = SWITCH_WAIT_SETTLE;
 
 static void queueInputSwitch(uint8_t targetInput) {
   uint8_t base = switchPending ? pendingInput : currentInput;
@@ -82,6 +93,8 @@ static void queueInputSwitch(uint8_t targetInput) {
   if (!switchPending) {
     // Eerste wijziging: mute aan, scherm in wissel-modus
     switchPending = true;
+    switchPhase   = SWITCH_WAIT_SETTLE;
+    switchPhaseMs = 0;
     setSwitchingInput(true);
     savedVolume[currentInput] = currentVolume;
     muteRelay(true);
@@ -127,6 +140,8 @@ void cancelInputSwitch() {
   switchPending = false;
   pendingInput  = currentInput;
   lastAdjustMs  = 0;
+  switchPhaseMs = 0;
+  switchPhase   = SWITCH_WAIT_SETTLE;
   setSwitchingInput(false);
 }
 
@@ -134,28 +149,44 @@ void cancelInputSwitch() {
 // Aanroepen vanuit hoofdloop — rondt wissel af na stilstand encoder
 void tickInputSwitch() {
   if (!switchPending) return;
-  if ((millis() - lastAdjustMs) < INPUT_SETTLE_MS) return;
+  uint32_t now = millis();
 
-  // Schakel nu pas de hardware-ingang (relay staat al dicht door mute)
-  currentInput = pendingInput;
-  setInput(currentInput);
-  delay(8);    // ingang relais settle
+  switch (switchPhase) {
+    case SWITCH_WAIT_SETTLE:
+      if ((now - lastAdjustMs) < INPUT_SETTLE_MS) return;
 
-  // Volume van nieuwe ingang laden terwijl nog gemute is
-  if (currentInput == surroundInput) {
-    currentVolume = 231;
-  } else {
-    currentVolume = (uint8_t)min((int)savedVolume[currentInput],
-                                 (int)effectiveMaxForInput(currentInput));
+      // Schakel nu pas de hardware-ingang (relay staat al dicht door mute)
+      currentInput = pendingInput;
+      setInput(currentInput);
+      switchPhase   = SWITCH_RELAY_SETTLE;
+      switchPhaseMs = now;
+      return;
+
+    case SWITCH_RELAY_SETTLE:
+      if ((now - switchPhaseMs) < INPUT_RELAY_SETTLE_MS) return;
+
+      // Volume van nieuwe ingang laden terwijl nog gemute is
+      if (currentInput == surroundInput) {
+        currentVolume = 231;
+      } else {
+        currentVolume = (uint8_t)min((int)savedVolume[currentInput],
+                                     (int)effectiveMaxForInput(currentInput));
+      }
+      applyVolume();
+      switchPhase   = SWITCH_UNMUTE_DELAY;
+      switchPhaseMs = now;
+      return;
+
+    case SWITCH_UNMUTE_DELAY:
+      if ((now - switchPhaseMs) < INPUT_UNMUTE_DELAY_MS) return;
+
+      if (!isMuted) muteRelay(false);
+
+      notifyActivityNoWake();
+      updateAfterInputSwitch();
+      switchPending = false;
+      switchPhase   = SWITCH_WAIT_SETTLE;
+      switchPhaseMs = 0;
+      return;
   }
-  applyVolume();
-
-  delay(20);   // mute-relay settle voor unmute
-
-  if (!isMuted) muteRelay(false);
-
-  notifyActivityNoWake();
-  updateAfterInputSwitch();
-  switchPending = false;
-
 }
