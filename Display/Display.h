@@ -57,7 +57,6 @@ void drawSystemScreen();  // Scherm instellingen
 void showIRLearnScreen();      // IR code leer-submenu
 bool isIRLearnScreenActive();  // True als IR leer-scherm actief is
 void onIRLearnSample(uint8_t protocol, uint16_t address, uint8_t command, uint32_t rawData, bool isRepeat);
-void adjustGainSelection(int delta);  // Wrapper → adjustVGSelection (backward compat)
 void adjustVGSelection(int delta);    // Encoder R → past geselecteerde parameter aan
 void adjustDSSelection(int delta);    // Encoder R → past geselecteerde display slider aan
 bool isGainScreenActive();            // True als Volume & Gain scherm open + item geselecteerd

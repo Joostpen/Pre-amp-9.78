@@ -3388,7 +3388,7 @@ static void handleMenuTouch(int16_t tx, int16_t ty) {
 // Herteken alleen een toggle-rij
 
 // ── Menu/subscreen touch handlers (extracted for maintainability) ───────────
-#include "DisplayMenuTouchHandlers.inc"
+#include "DisplayMenuTouchHandlers.h"
 
 // ════════════════════════════════════════════════════════════════════════════
 //  Encoder R — aanpassen geselecteerde parameter in Volume & Gain scherm
@@ -3460,11 +3460,6 @@ void adjustVGSelection(int delta) {
   if (changed) saveSettings();
 
   vgRedrawRow(vgSelection);  // Één hertekening na alle stappen
-}
-
-// Wrapper voor Encoder.cpp — backward-compatible
-void adjustGainSelection(int delta) {
-  adjustVGSelection(delta);
 }
 
 bool isGainScreenActive() {

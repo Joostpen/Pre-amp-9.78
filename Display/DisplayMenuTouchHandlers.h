@@ -1,5 +1,5 @@
 /*
- * DisplayMenuTouchHandlers.inc
+ * DisplayMenuTouchHandlers.h
  *
  * Extracted menu/subscreen touch handlers from Display.cpp to keep the main
  * display translation unit more navigable while preserving the same static
