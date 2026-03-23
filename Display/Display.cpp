@@ -1405,6 +1405,13 @@ static void clearPrimaryValueZone() {
   display.fillRect(0, 155, SCREEN_W, zoneBot - 155, C_BG);
 }
 
+static void clearPrimaryValueTextArea() {
+  int16_t zoneBot = detailPanelActive() ? (DP_TOP - 4) : SCREEN_H;
+  const int16_t textTop = 176;
+  if (zoneBot <= textTop) return;
+  display.fillRect(60, textTop, SCREEN_W - 120, zoneBot - textTop, C_BG);
+}
+
 // Wist volumezone + panelzone — gebruikt door crossfade
 static void clearMainContentZone() {
   display.fillRect(0, 155, SCREEN_W, SCREEN_H - 155, C_BG);
@@ -1427,7 +1434,7 @@ static void drawMainPrimaryValue() {
   // Tijdens crossfade fadet de volume-alpha mee met panelBlend
   #define VOL_ALPHA(c) (xfadeState != XF_IDLE ? alpha565((c), panelBlend) : (c))
 
-  if (mainFontMode != FONT_STANDARD) clearPrimaryValueZone();
+  if (mainFontMode != FONT_STANDARD) clearPrimaryValueTextArea();
 
   if (currentVolume == VOL_OFF && !isMuted) {
     uint16_t c = VOL_ALPHA(governedMainAccent());
@@ -1970,9 +1977,7 @@ static void redrawVolumeZone() {
   if (inStandby) { drawMainScreen(); return; }
   if (volBlinkCount > 0 && !volBlinkOn) return;  // blink is in 'uit'-fase — niet overschrijven
   display.startBuffering();
-  drawMainStatusChips();
-  drawMainHairline();
-  clearPrimaryValueZone();
+  clearPrimaryValueTextArea();
   drawMainPrimaryValue();
   if (detailPanelActive()) redrawDetailAttenCard();
   display.endBuffering();
