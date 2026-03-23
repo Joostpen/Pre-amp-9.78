@@ -35,8 +35,8 @@ struct AAFont {
 enum AAAlign { AA_LEFT, AA_CENTER, AA_RIGHT };
 
 // ── Display referentie ────────────────────────────────────────────────────────
-static GigaDisplay_GFX* _aaDisplay = nullptr;
-static bool _aaBatchWriteActive = false;
+extern GigaDisplay_GFX* _aaDisplay;
+extern bool _aaBatchWriteActive;
 inline void AAFont_setDisplay(GigaDisplay_GFX* d) { _aaDisplay = d; }
 inline void AAFont_beginBatch() {
   if (!_aaDisplay || _aaBatchWriteActive) return;

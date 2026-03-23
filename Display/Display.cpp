@@ -52,6 +52,8 @@
 GigaDisplay_GFX          display;
 Arduino_GigaDisplayTouch touch;
 GigaDisplayBacklight backlight;
+GigaDisplay_GFX*         _aaDisplay = nullptr;
+bool                     _aaBatchWriteActive = false;
 
 extern uint8_t screenBrightness;
 
