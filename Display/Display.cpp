@@ -1348,49 +1348,76 @@ static void formatVolStr(char* buf, uint8_t vol) {
 }
 
 
-// Berekent pixelbreedte van een volumestring in AA_VOL scaled 1.5x
-// op basis van de bekende xAdvance waarden (48pt, scale=24/16=1.5)
-static int16_t volStrWidthPx(const char* s) {
-  static const uint8_t xAdv[] = {
-    // index = c - 0x20, Artifakt 48pt xAdvance waarden
-    25,0,0,0,0,0,0,0,0,0,0,43,0,40,25,0, // sp ! " # $ % & ' ( ) * + , - . /
-    59,44,49,54,55,53,55,47,58,54         // 0-9
-  };
-  int16_t w = 0;
-  for (const char* p = s; *p; p++) {
-    uint8_t idx = (uint8_t)(*p) - 0x20;
-    uint8_t xa = (idx < sizeof(xAdv)) ? xAdv[idx] : 50;
-    w += (int16_t)(xa * 3 / 2);  // scale 1.5x (24/16)
-  }
-  return w;
+enum VolSlotKind : uint8_t {
+  VOL_SLOT_SIGN,
+  VOL_SLOT_DIGIT,
+  VOL_SLOT_DOT
+};
+
+struct VolSlotLayout {
+  const VolSlotKind* slots;
+  uint8_t count;
+};
+
+static const VolSlotKind VOL_LAYOUT_DB[]      = {VOL_SLOT_SIGN, VOL_SLOT_DIGIT, VOL_SLOT_DIGIT, VOL_SLOT_DIGIT, VOL_SLOT_DOT, VOL_SLOT_DIGIT};
+static const VolSlotKind VOL_LAYOUT_INTEGER[] = {VOL_SLOT_DIGIT, VOL_SLOT_DIGIT, VOL_SLOT_DIGIT};
+
+static VolSlotLayout currentVolSlotLayout() {
+  if (volUnitsMode == VOL_UNITS_DB) return {VOL_LAYOUT_DB, (uint8_t)(sizeof(VOL_LAYOUT_DB) / sizeof(VOL_LAYOUT_DB[0]))};
+  return {VOL_LAYOUT_INTEGER, (uint8_t)(sizeof(VOL_LAYOUT_INTEGER) / sizeof(VOL_LAYOUT_INTEGER[0]))};
 }
 
-// Breedte berekening voor Orbitron @ scale_x16=32 (2x)
-static int16_t volStrWidthPxOrbitron(const char* s) {
-  static const uint8_t xAdv[] = {
-    // index = c - 0x20, Orbitron 48pt xAdvance waarden
-    12,0,0,0,0,0,0,0,0,0,0,0,0,25,11,0, // sp ! " # $ % & ' ( ) * + , - . /
-    40,19,40,40,35,40,39,32,40,40        // 0-9
-  };
-  int16_t w = 0;
-  for (const char* p = s; *p; p++) {
-    uint8_t idx = (uint8_t)(*p) - 0x20;
-    uint8_t xa = (idx < sizeof(xAdv)) ? xAdv[idx] : 40;
-    w += (int16_t)(xa * 40 / 16);  // scale 2.5x (40/16)
-  }
-  return w;
-}
-
-static void formatVolNumStr(char* buf, uint8_t vol) {
+static void formatVolNumStrPadded(char* buf, uint8_t vol) {
   if (vol == VOL_OFF) { strcpy(buf, "Off"); return; }
   if (volUnitsMode == VOL_UNITS_DB) {
     float dB = (vol * 0.5f) - 115.5f;
-    sprintf(buf, "%.1f", dB);
+    snprintf(buf, 16, "%6.1f", dB);
   } else if (volUnitsMode == VOL_UNITS_PERCENT) {
     uint16_t pct = (uint16_t)(((uint32_t)vol * 100U + 127U) / 255U);
-    sprintf(buf, "%u", (unsigned)pct);
+    snprintf(buf, 16, "%3u", (unsigned)pct);
   } else {
-    sprintf(buf, "%u", (unsigned)vol);
+    snprintf(buf, 16, "%3u", (unsigned)vol);
+  }
+}
+
+static int16_t scaledAdvancePx(int16_t advance, uint8_t scale_x16) {
+  return (int16_t)((advance * scale_x16) + 8) / 16;
+}
+
+static int16_t fixedSlotAdvancePx(bool orbitron, VolSlotKind slot, uint8_t scale_x16) {
+  const int16_t digitAdvance = orbitron ? 40 : 59;
+  const int16_t signAdvance  = orbitron ? 25 : 40;
+  const int16_t dotAdvance   = orbitron ? 11 : 25;
+  const int16_t baseAdvance  = (slot == VOL_SLOT_DIGIT) ? digitAdvance
+                             : (slot == VOL_SLOT_DOT)   ? dotAdvance
+                                                        : signAdvance;
+  return scaledAdvancePx(baseAdvance, scale_x16);
+}
+
+static int16_t fixedSlotLayoutWidthPx(bool orbitron, const VolSlotLayout& layout, uint8_t scale_x16) {
+  int16_t width = 0;
+  for (uint8_t i = 0; i < layout.count; ++i) width += fixedSlotAdvancePx(orbitron, layout.slots[i], scale_x16);
+  return width;
+}
+
+static void drawFixedSlotVolumeString(const AAFont* font, bool orbitron,
+                                      const char* str, const VolSlotLayout& layout,
+                                      int16_t x, int16_t baseline,
+                                      uint16_t fgColor, uint16_t bgColor,
+                                      uint8_t scale_x16) {
+  if (!font || !str) return;
+
+  char ch[2] = {'\0', '\0'};
+  int16_t curX = x;
+  for (uint8_t i = 0; i < layout.count && str[i]; ++i) {
+    int16_t cellW = fixedSlotAdvancePx(orbitron, layout.slots[i], scale_x16);
+    if (str[i] != ' ') {
+      ch[0] = str[i];
+      int16_t glyphW = AAFont_stringWidthScaled(font, ch, scale_x16);
+      int16_t glyphX = curX + ((cellW - glyphW) / 2);
+      AAFont_drawStringScaled(font, ch, glyphX, baseline, fgColor, bgColor, scale_x16, AA_LEFT, 0);
+    }
+    curX += cellW;
   }
 }
 
@@ -1454,28 +1481,36 @@ static void drawMainPrimaryValue() {
   } else {
     uint8_t  volPct = (uint8_t)(55 + 45U * (255U - mainCalmBlend) / 255U);
     uint16_t vCol   = VOL_ALPHA(scale565(volColor(), volPct));
+    VolSlotLayout layout = currentVolSlotLayout();
 
     if (mainFontMode == FONT_MATRIX) {
-      char vs[16]; formatVolStr(vs, currentVolume);
-      drawDotMatrixStringScaled(AA_VOL, vs, 0, VAL_Y, vCol, AA_CENTER, SCREEN_W, scaleStd, dotPitch, dotR, dotGap);
+      char vs[16]; formatVolNumStrPadded(vs, currentVolume);
+      const char* unit = currentVolUnitLabel();
+      const int16_t UNIT_GAP = useLarge ? 22 : 18;
+      const int16_t numW = dotMatrixWidth(vs, dotPitch, dotGap);
+      const int16_t unitW = dotMatrixWidth(unit, dotPitch, dotGap);
+      int16_t numX = (SCREEN_W - (numW + UNIT_GAP + unitW)) / 2;
+      drawDotMatrixStringScaled(AA_VOL, vs, numX, VAL_Y, vCol, AA_LEFT, numW, scaleStd, dotPitch, dotR, dotGap);
+      uint8_t unitPct = (uint8_t)(38 + 22U * (255U - mainCalmBlend) / 255U);
+      drawDotMatrixStringScaled(AA_VOL, unit, numX + numW + UNIT_GAP, VAL_Y, VOL_ALPHA(scale565(volColor(), unitPct)), AA_LEFT, unitW, scaleStd, dotPitch, dotR, dotGap);
     } else if (mainFontMode == FONT_ORBITRON) {
-      char vs[16]; formatVolNumStr(vs, currentVolume);
+      char vs[16]; formatVolNumStrPadded(vs, currentVolume);
       const char* unit = currentVolUnitLabel();
       const int16_t UNIT_GAP = useLarge ? 30 : 24;
       const int16_t UNIT_W   = AAFont_stringWidth(AA_SM, unit) + 8;
-      int16_t numW = AAFont_stringWidthScaled(&Orbitron48AA, vs, scaleOrb);
+      int16_t numW = fixedSlotLayoutWidthPx(true, layout, scaleOrb);
       int16_t numX = (SCREEN_W - (numW + UNIT_GAP + UNIT_W)) / 2;
-      AAFont_drawStringScaled(&Orbitron48AA, vs, numX, VAL_Y, VOL_ALPHA(dimC(vCol)), C_BG, scaleOrb, AA_LEFT, numW + 4);
+      drawFixedSlotVolumeString(&Orbitron48AA, true, vs, layout, numX, VAL_Y, VOL_ALPHA(dimC(vCol)), C_BG, scaleOrb);
       uint8_t unitPct = (uint8_t)(38 + 22U * (255U - mainCalmBlend) / 255U);
       AAFont_drawString(AA_SM, unit, numX + numW + UNIT_GAP, VAL_Y, VOL_ALPHA(dimC(scale565(volColor(), unitPct))), C_BG, AA_LEFT, UNIT_W);
     } else {
-      char vs[16]; formatVolNumStr(vs, currentVolume);
+      char vs[16]; formatVolNumStrPadded(vs, currentVolume);
       const char* unit = currentVolUnitLabel();
       const int16_t UNIT_GAP = useLarge ? 22 : 18;
       const int16_t UNIT_W   = AAFont_stringWidth(AA_SM, unit) + 8;
-      int16_t numW = AAFont_stringWidthScaled(AA_VOL, vs, scaleStd);
+      int16_t numW = fixedSlotLayoutWidthPx(false, layout, scaleStd);
       int16_t numX = (SCREEN_W - (numW + UNIT_GAP + UNIT_W)) / 2;
-      AAFont_drawStringScaled(AA_VOL, vs, numX, VAL_Y, VOL_ALPHA(dimC(vCol)), C_BG, scaleStd, AA_LEFT, numW + 4);
+      drawFixedSlotVolumeString(AA_VOL, false, vs, layout, numX, VAL_Y, VOL_ALPHA(dimC(vCol)), C_BG, scaleStd);
       uint8_t unitPct = (uint8_t)(38 + 22U * (255U - mainCalmBlend) / 255U);
       AAFont_drawString(AA_SM, unit, numX + numW + UNIT_GAP, VAL_Y, VOL_ALPHA(dimC(scale565(volColor(), unitPct))), C_BG, AA_LEFT, UNIT_W);
     }
