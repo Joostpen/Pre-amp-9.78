@@ -126,6 +126,7 @@ void cancelInputSwitch() {
 
   switchPending = false;
   pendingInput  = currentInput;
+  lastAdjustMs  = 0;
   setSwitchingInput(false);
 }
 

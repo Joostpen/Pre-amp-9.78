@@ -9,16 +9,12 @@
 #include "MCP23017.h"
 #include "VolumeControl.h"
 #include "Display.h"
-#include "GainControl.h"  // voor startupVolume, surroundInput
 #include "InputControl.h" // voor setInput()
 #include "Settings.h"     // warmStandbyEnabled setting
 
 // State access
 extern uint8_t currentVolume;
-extern uint8_t startupVolume[INPUT_COUNT];
-extern uint8_t startupVolume[INPUT_COUNT];
 extern uint8_t currentInput;
-extern uint8_t savedVolume[];
 extern bool    inStandby;
 extern bool    isMuted;
 extern bool    warmStandbyEnabled;

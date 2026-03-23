@@ -24,9 +24,9 @@ extern uint8_t  irCommandMap[IR_ACTION_COUNT];
 // Gedefinieerd hier; extern gedeclareerd in Settings.h
 int8_t inputOffset[INPUT_COUNT] = { 0, 0, 0, 0, 0 };
 uint8_t maxVolume = SETTINGS_DEFAULT.maxVolume;
-bool remoteTriggerEnabled = true;
-bool largeFontOnDim       = true;
-uint8_t encSensitivity    = 1;  // neutral default
+bool remoteTriggerEnabled = SETTINGS_DEFAULT.remoteTriggerEnabled;
+bool largeFontOnDim       = SETTINGS_DEFAULT.largeFontOnDim;
+uint8_t encSensitivity    = SETTINGS_DEFAULT.encSensitivity;
 
 
 // ── Debounce state ────────────────────────────────────────────────────────────
@@ -36,7 +36,10 @@ static bool     settingsDirty   = false;
 static uint32_t settingsDirtyMs = 0;
 static uint8_t  persistedCurrentInput = SETTINGS_DEFAULT.currentInput;
 static uint8_t  persistedCurrentVolume = SETTINGS_DEFAULT.currentVolume;
-static uint8_t  persistedSavedVolume[INPUT_COUNT] = {128, 128, 128, 128, 128};
+static uint8_t  persistedSavedVolume[INPUT_COUNT] = {
+  SETTINGS_DEFAULT.savedVolume[0], SETTINGS_DEFAULT.savedVolume[1], SETTINGS_DEFAULT.savedVolume[2],
+  SETTINGS_DEFAULT.savedVolume[3], SETTINGS_DEFAULT.savedVolume[4]
+};
 
 // ── CRC16-CCITT ───────────────────────────────────────────────────────────────
 static uint16_t crc16(const uint8_t* data, size_t len) {
