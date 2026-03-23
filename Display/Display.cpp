@@ -263,6 +263,12 @@ bool            mainCalmMode     = false;
 static uint8_t  mainCalmBlend    = 0;     // 0..255 voor vloeiende calm-transition
 static uint8_t  panelBlend       = 255;   // 0=volumezone+panel onzichtbaar, 255=volledig zichtbaar
 static bool     fontIsLarge      = false; // huidige weergavestaat: groot of klein font
+static bool     primaryValueCacheValid = false;
+static uint8_t  primaryValueCacheFontMode = 0xFF;
+static uint8_t  primaryValueCacheUnitsMode = 0xFF;
+static bool     primaryValueCacheLarge = false;
+static char     primaryValueCacheValue[16] = {0};
+static char     primaryValueCacheUnit[8] = {0};
 // Crossfade state: IDLE → FADE_OUT → SNAP → FADE_IN → IDLE
 enum XfadeState : uint8_t { XF_IDLE, XF_FADE_OUT, XF_FADE_IN };
 static XfadeState xfadeState     = XF_IDLE;
@@ -1428,7 +1434,48 @@ static const char* currentVolUnitLabel() {
   return "St.";
 }
 
+static void invalidatePrimaryValueCache() {
+  primaryValueCacheValid = false;
+  primaryValueCacheFontMode = 0xFF;
+  primaryValueCacheUnitsMode = 0xFF;
+  primaryValueCacheLarge = false;
+  primaryValueCacheValue[0] = '\0';
+  primaryValueCacheUnit[0] = '\0';
+}
+
+static void syncPrimaryValueCache(bool useLarge) {
+  if (currentVolume == VOL_OFF || isMuted || currentInput == surroundInput) {
+    invalidatePrimaryValueCache();
+    return;
+  }
+  formatVolNumStrPadded(primaryValueCacheValue, currentVolume);
+  strncpy(primaryValueCacheUnit, currentVolUnitLabel(), sizeof(primaryValueCacheUnit) - 1);
+  primaryValueCacheUnit[sizeof(primaryValueCacheUnit) - 1] = '\0';
+  primaryValueCacheFontMode = mainFontMode;
+  primaryValueCacheUnitsMode = volUnitsMode;
+  primaryValueCacheLarge = useLarge;
+  primaryValueCacheValid = true;
+}
+
+static int16_t primaryValueTextTopPx() {
+  return 176;
+}
+
+static int16_t primaryValueTextBottomPx() {
+  int16_t zoneBot = detailPanelActive() ? (DP_TOP - 4) : SCREEN_H;
+  return zoneBot > primaryValueTextTopPx() ? zoneBot : primaryValueTextTopPx();
+}
+
+static void clearPrimaryValueColumnRect(int16_t x, int16_t w) {
+  if (w <= 0) return;
+  int16_t top = primaryValueTextTopPx();
+  int16_t bottom = primaryValueTextBottomPx();
+  if (bottom <= top) return;
+  display.fillRect(x, top, w, bottom - top, C_BG);
+}
+
 static void clearPrimaryValueZone() {
+  invalidatePrimaryValueCache();
   int16_t zoneBot = detailPanelActive() ? DP_TOP : SCREEN_H;
   display.fillRect(0, 155, SCREEN_W, zoneBot - 155, C_BG);
 }
@@ -1443,6 +1490,101 @@ static void clearPrimaryValueTextArea() {
 // Wist volumezone + panelzone — gebruikt door crossfade
 static void clearMainContentZone() {
   display.fillRect(0, 155, SCREEN_W, SCREEN_H - 155, C_BG);
+}
+
+static void redrawFixedSlotVolumeStringDiff(const AAFont* font, bool orbitron,
+                                            const char* prevStr, const char* nextStr,
+                                            const VolSlotLayout& layout,
+                                            int16_t x, int16_t baseline,
+                                            uint16_t fgColor, uint16_t bgColor,
+                                            uint8_t scale_x16) {
+  if (!font || !prevStr || !nextStr) return;
+  char ch[2] = {'\0', '\0'};
+  int16_t curX = x;
+  for (uint8_t i = 0; i < layout.count && nextStr[i]; ++i) {
+    int16_t cellW = fixedSlotAdvancePx(orbitron, layout.slots[i], scale_x16);
+    if (prevStr[i] != nextStr[i]) {
+      clearPrimaryValueColumnRect(curX - 2, cellW + 4);
+      if (nextStr[i] != ' ') {
+        ch[0] = nextStr[i];
+        int16_t glyphW = AAFont_stringWidthScaled(font, ch, scale_x16);
+        int16_t glyphX = curX + ((cellW - glyphW) / 2);
+        AAFont_drawStringScaled(font, ch, glyphX, baseline, fgColor, bgColor, scale_x16, AA_LEFT, 0);
+      }
+    }
+    curX += cellW;
+  }
+}
+
+static void redrawMatrixVolumeStringDiff(const char* prevStr, const char* nextStr,
+                                         int16_t x, int16_t baseline,
+                                         uint16_t fgColor, uint8_t pitch, uint8_t dotR, uint8_t charGap) {
+  if (!prevStr || !nextStr) return;
+  char ch[2] = {'\0', '\0'};
+  int16_t curX = x;
+  const int16_t cellW = 5 * pitch + charGap;
+  for (const char* pPrev = prevStr, *pNext = nextStr; *pNext; ++pPrev, ++pNext) {
+    if (*pPrev != *pNext) {
+      clearPrimaryValueColumnRect(curX - 2, cellW + 4);
+      if (*pNext != ' ') {
+        ch[0] = *pNext;
+        drawDotMatrixStringScaled(AA_VOL, ch, curX, baseline, fgColor, AA_LEFT, cellW, 0, pitch, dotR, charGap);
+      }
+    }
+    curX += cellW;
+  }
+}
+
+static bool redrawMainPrimaryValueIncremental() {
+  if (!primaryValueCacheValid) return false;
+  if (currentVolume == VOL_OFF || isMuted || currentInput == surroundInput) return false;
+
+  const bool useLarge = fontIsLarge;
+  if (primaryValueCacheFontMode != mainFontMode ||
+      primaryValueCacheUnitsMode != volUnitsMode ||
+      primaryValueCacheLarge != useLarge) {
+    return false;
+  }
+
+  char vs[16]; formatVolNumStrPadded(vs, currentVolume);
+  const char* unit = currentVolUnitLabel();
+  if (strcmp(primaryValueCacheUnit, unit) != 0) return false;
+  if (strcmp(primaryValueCacheValue, vs) == 0) return true;
+
+  const int16_t VAL_Y    = (useLarge ? 340 : 310) - MAIN_MATRIX_VALUE_SHIFT_UP_PX;
+  const uint8_t scaleStd = useLarge ? 30 : 24;
+  const uint8_t scaleOrb = useLarge ? 50 : 40;
+  const uint8_t dotPitch = useLarge ? 17 : 14;
+  const uint8_t dotR     = useLarge ?  6 :  5;
+  const uint8_t dotGap   = useLarge ? 10 :  8;
+  uint8_t  volPct = (uint8_t)(55 + 45U * (255U - mainCalmBlend) / 255U);
+  uint16_t vCol   = scale565(volColor(), volPct);
+  VolSlotLayout layout = currentVolSlotLayout();
+
+  AAFont_beginBatch();
+  if (mainFontMode == FONT_MATRIX) {
+    const int16_t UNIT_GAP = useLarge ? 22 : 18;
+    const int16_t numW = dotMatrixWidth(vs, dotPitch, dotGap);
+    const int16_t unitW = dotMatrixWidth(unit, dotPitch, dotGap);
+    int16_t numX = (SCREEN_W - (numW + UNIT_GAP + unitW)) / 2;
+    redrawMatrixVolumeStringDiff(primaryValueCacheValue, vs, numX, VAL_Y, vCol, dotPitch, dotR, dotGap);
+  } else if (mainFontMode == FONT_ORBITRON) {
+    const int16_t UNIT_GAP = useLarge ? 30 : 24;
+    const int16_t UNIT_W   = AAFont_stringWidth(AA_SM, unit) + 8;
+    int16_t numW = fixedSlotLayoutWidthPx(true, layout, scaleOrb);
+    int16_t numX = (SCREEN_W - (numW + UNIT_GAP + UNIT_W)) / 2;
+    redrawFixedSlotVolumeStringDiff(&Orbitron48AA, true, primaryValueCacheValue, vs, layout, numX, VAL_Y, dimC(vCol), C_BG, scaleOrb);
+  } else {
+    const int16_t UNIT_GAP = useLarge ? 22 : 18;
+    const int16_t UNIT_W   = AAFont_stringWidth(AA_SM, unit) + 8;
+    int16_t numW = fixedSlotLayoutWidthPx(false, layout, scaleStd);
+    int16_t numX = (SCREEN_W - (numW + UNIT_GAP + UNIT_W)) / 2;
+    redrawFixedSlotVolumeStringDiff(AA_VOL, false, primaryValueCacheValue, vs, layout, numX, VAL_Y, dimC(vCol), C_BG, scaleStd);
+  }
+  AAFont_endBatch();
+
+  syncPrimaryValueCache(useLarge);
+  return true;
 }
 
 static void drawMainPrimaryValue() {
@@ -1518,6 +1660,7 @@ static void drawMainPrimaryValue() {
     }
   }
   AAFont_endBatch();
+  syncPrimaryValueCache(useLarge);
   #undef VOL_ALPHA
 }
 
@@ -2015,8 +2158,10 @@ static void redrawVolumeZone() {
   if (inStandby) { drawMainScreen(); return; }
   if (volBlinkCount > 0 && !volBlinkOn) return;  // blink is in 'uit'-fase — niet overschrijven
   display.startBuffering();
-  clearPrimaryValueTextArea();
-  drawMainPrimaryValue();
+  if (!redrawMainPrimaryValueIncremental()) {
+    clearPrimaryValueTextArea();
+    drawMainPrimaryValue();
+  }
   if (detailPanelActive()) redrawDetailAttenCard();
   display.endBuffering();
 }
