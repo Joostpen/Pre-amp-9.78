@@ -251,11 +251,11 @@ static void handleSystemTouch(int16_t tx, int16_t ty) {
 
   const int16_t row1Y = MENU_BTN_Y - MENU_BTN_H - MENU_BTN_GAP;
   const int16_t row2Y = MENU_BTN_Y;
-  const int16_t row1W = menuBtnW(3);
-  const int16_t row2W = menuBtnW(2);
+  const int16_t row1W = menuBtnW(2);
+  const int16_t row2W = menuBtnW(3);
 
   if (ty >= row1Y && ty < row1Y + MENU_BTN_H) {
-    for (int8_t i = 0; i < 3; i++) {
+    for (int8_t i = 0; i < 2; i++) {
       if (tx >= menuBtnX(i,row1W) && tx < menuBtnX(i,row1W)+row1W) {
         switch(i) {
           case 0:
@@ -266,22 +266,22 @@ static void handleSystemTouch(int16_t tx, int16_t ty) {
             warmStandbyEnabled = !warmStandbyEnabled;
             saveAndRedraw(drawSystemScreen);
             return;
-          case 2:
-            if (warmStandbyEnabled) {
-              warmTrigRelayClosed = !warmTrigRelayClosed;
-              saveAndRedraw(drawSystemScreen);
-            }
-            return;
         }
       }
     }
   }
 
   if (ty >= row2Y && ty < row2Y + MENU_BTN_H) {
-    for (int8_t i = 0; i < 2; i++) {
+    for (int8_t i = 0; i < 3; i++) {
       if (tx >= menuBtnX(i,row2W) && tx < menuBtnX(i,row2W)+row2W) {
         switch(i) {
           case 0:
+            if (warmStandbyEnabled) {
+              warmTrigRelayClosed = !warmTrigRelayClosed;
+              saveAndRedraw(drawSystemScreen);
+            }
+            return;
+          case 1:
             remoteTriggerEnabled = !remoteTriggerEnabled;
             if (!remoteTriggerEnabled) {
               digitalWrite(PIN_REMOTE_TRIG, LOW);
@@ -290,7 +290,7 @@ static void handleSystemTouch(int16_t tx, int16_t ty) {
             }
             saveAndRedraw(drawSystemScreen);
             return;
-          case 1:
+          case 2:
             diagLastRefreshMs = millis();
             drawDiagnosticsScreen();
             return;
