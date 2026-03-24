@@ -277,6 +277,14 @@ static uint16_t detailAttenCacheColor = 0;
 static bool     detailBalanceCacheValid = false;
 static char     detailBalanceCacheValue[14] = {0};
 static uint16_t detailBalanceCacheColor = 0;
+enum MainDirtyFlag : uint8_t {
+  DIRTY_MAIN_NAME    = 1 << 0,
+  DIRTY_MAIN_STATUS  = 1 << 1,
+  DIRTY_MAIN_HAIR    = 1 << 2,
+  DIRTY_MAIN_PRIMARY = 1 << 3,
+  DIRTY_MAIN_PANEL   = 1 << 4,
+};
+static uint8_t  mainDirtyFlags = 0;
 // Crossfade state: IDLE → FADE_OUT → SNAP → FADE_IN → IDLE
 enum XfadeState : uint8_t { XF_IDLE, XF_FADE_OUT, XF_FADE_IN };
 static XfadeState xfadeState     = XF_IDLE;
@@ -483,6 +491,8 @@ static void drawMainPrimaryValue();
 static void drawScreenHeader(const char* title);
 static void clearAndDrawInputName();
 static void clearPrimaryValueZone();
+static void markMainDirty(uint8_t flags);
+static void flushMainDirty();
 static void invalidateDetailValueCaches();
 static bool isDefaultVGToggle(const char* label);
 static uint16_t mainHairlineColor();
@@ -2218,16 +2228,44 @@ void fadeTransition() {
   fadeTobrightness(0);  // updateDisplay() voert de fade non-blocking uit
 }
 
+static void markMainDirty(uint8_t flags) {
+  mainDirtyFlags |= flags;
+}
+
+static void flushMainDirty() {
+  if (mainDirtyFlags == 0) return;
+  if (currentScreen != SCR_MAIN || inStandby) {
+    mainDirtyFlags = 0;
+    return;
+  }
+
+  display.startBuffering();
+  if (mainDirtyFlags & DIRTY_MAIN_NAME) drawInputName();
+  if (mainDirtyFlags & DIRTY_MAIN_STATUS) drawMainStatusChips();
+  if (mainDirtyFlags & DIRTY_MAIN_HAIR) drawMainHairline();
+  if (mainDirtyFlags & DIRTY_MAIN_PRIMARY) {
+    if (!redrawMainPrimaryValueIncremental()) {
+      clearPrimaryValueTextArea();
+      drawMainPrimaryValue();
+    }
+  }
+  if ((mainDirtyFlags & DIRTY_MAIN_PANEL) && detailPanelActive()) {
+    drawSimpleDetailPanel();
+  }
+  display.endBuffering();
+  mainDirtyFlags = 0;
+}
+
 static void redrawVolumeZone() {
   if (inStandby) { drawMainScreen(); return; }
   if (volBlinkCount > 0 && !volBlinkOn) return;  // blink is in 'uit'-fase — niet overschrijven
-  display.startBuffering();
-  if (!redrawMainPrimaryValueIncremental()) {
-    clearPrimaryValueTextArea();
-    drawMainPrimaryValue();
+  markMainDirty(DIRTY_MAIN_PRIMARY);
+  flushMainDirty();
+  if (detailPanelActive()) {
+    display.startBuffering();
+    redrawDetailAttenCard();
+    display.endBuffering();
   }
-  if (detailPanelActive()) redrawDetailAttenCard();
-  display.endBuffering();
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -4140,14 +4178,10 @@ void updateDisplay() {
       // zonder dit triggert elke AAFont_drawString-aanroep een losse dsi_lcdDrawImage,
       // wat flicker geeft én de refresh thread (osPriorityHigh) zo vaak wekt dat
       // de main loop te weinig CPU krijgt om de dim-timer te halen.
-      display.startBuffering();
-      drawMainStatusChips();
-      drawMainHairline();
-      if (balShowMs == 0) {
-        drawInputName();
-        drawMainPrimaryValue();
-      }
-      display.endBuffering();
+      uint8_t dirty = DIRTY_MAIN_STATUS | DIRTY_MAIN_HAIR;
+      if (balShowMs == 0) dirty |= DIRTY_MAIN_NAME | DIRTY_MAIN_PRIMARY;
+      markMainDirty(dirty);
+      flushMainDirty();
       // Detailpanel hier nooit per animatieframe hertekenen.
       // Ook in de "terug van calm" fase (mainCalmMode=false, blend nog actief)
       // gaf dat sporadisch knipperen direct na instellingen/wijzigingen.
