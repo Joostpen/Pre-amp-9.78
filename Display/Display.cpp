@@ -1566,6 +1566,59 @@ static void redrawMatrixVolumeStringDiff(const char* prevStr, const char* nextSt
   }
 }
 
+struct PrimaryValueRenderPlan {
+  bool useLarge;
+  int16_t valY;
+  uint8_t scaleStd;
+  uint8_t scaleOrb;
+  uint8_t dotPitch;
+  uint8_t dotR;
+  uint8_t dotGap;
+  uint8_t unitDotPitch;
+  uint8_t unitDotR;
+  uint8_t unitDotGap;
+  int16_t unitGap;
+  int16_t numW;
+  int16_t unitW;
+  int16_t numX;
+  VolSlotLayout layout;
+  char valueStr[16];
+  const char* unit;
+};
+
+static PrimaryValueRenderPlan buildPrimaryValueRenderPlan(bool useLarge) {
+  PrimaryValueRenderPlan plan{};
+  plan.useLarge = useLarge;
+  plan.valY     = (useLarge ? 340 : 310) - MAIN_MATRIX_VALUE_SHIFT_UP_PX;
+  plan.scaleStd = useLarge ? 30 : 24;
+  plan.scaleOrb = useLarge ? 50 : 40;
+  plan.dotPitch = useLarge ? 17 : 14;
+  plan.dotR     = useLarge ?  6 :  5;
+  plan.dotGap   = useLarge ? 10 :  8;
+  plan.unitDotPitch = useLarge ? 11 : 9;
+  plan.unitDotR     = useLarge ?  4 : 3;
+  plan.unitDotGap   = useLarge ?  7 : 5;
+  plan.layout = currentVolSlotLayout();
+  formatVolNumStrPadded(plan.valueStr, currentVolume);
+  plan.unit = currentVolUnitLabel();
+
+  if (mainFontMode == FONT_MATRIX) {
+    plan.unitGap = useLarge ? 34 : 28;
+    plan.numW = dotMatrixWidth(plan.valueStr, plan.dotPitch, plan.dotGap);
+    plan.unitW = dotMatrixWidth(plan.unit, plan.unitDotPitch, plan.unitDotGap);
+  } else if (mainFontMode == FONT_ORBITRON) {
+    plan.unitGap = useLarge ? 30 : 24;
+    plan.numW = fixedSlotLayoutWidthPx(true, plan.layout, plan.scaleOrb);
+    plan.unitW = AAFont_stringWidth(AA_SM, plan.unit) + 8;
+  } else {
+    plan.unitGap = useLarge ? 22 : 18;
+    plan.numW = fixedSlotLayoutWidthPx(false, plan.layout, plan.scaleStd);
+    plan.unitW = AAFont_stringWidth(AA_SM, plan.unit) + 8;
+  }
+  plan.numX = (SCREEN_W - (plan.numW + plan.unitGap + plan.unitW)) / 2;
+  return plan;
+}
+
 static bool redrawMainPrimaryValueIncremental() {
   if (!primaryValueCacheValid) return false;
   if (currentVolume == VOL_OFF || isMuted || currentInput == surroundInput) return false;
@@ -1577,43 +1630,20 @@ static bool redrawMainPrimaryValueIncremental() {
     return false;
   }
 
-  char vs[16]; formatVolNumStrPadded(vs, currentVolume);
-  const char* unit = currentVolUnitLabel();
-  if (strcmp(primaryValueCacheUnit, unit) != 0) return false;
-  if (strcmp(primaryValueCacheValue, vs) == 0) return true;
+  PrimaryValueRenderPlan plan = buildPrimaryValueRenderPlan(useLarge);
+  if (strcmp(primaryValueCacheUnit, plan.unit) != 0) return false;
+  if (strcmp(primaryValueCacheValue, plan.valueStr) == 0) return true;
 
-  const int16_t VAL_Y    = (useLarge ? 340 : 310) - MAIN_MATRIX_VALUE_SHIFT_UP_PX;
-  const uint8_t scaleStd = useLarge ? 30 : 24;
-  const uint8_t scaleOrb = useLarge ? 50 : 40;
-  const uint8_t dotPitch = useLarge ? 17 : 14;
-  const uint8_t dotR     = useLarge ?  6 :  5;
-  const uint8_t dotGap   = useLarge ? 10 :  8;
-  const uint8_t unitDotPitch = useLarge ? 11 : 9;
-  const uint8_t unitDotR     = useLarge ?  4 : 3;
-  const uint8_t unitDotGap   = useLarge ?  7 : 5;
   uint8_t  volPct = (uint8_t)(55 + 45U * (255U - mainCalmBlend) / 255U);
   uint16_t vCol   = scale565(volColor(), volPct);
-  VolSlotLayout layout = currentVolSlotLayout();
 
   AAFont_beginBatch();
   if (mainFontMode == FONT_MATRIX) {
-    const int16_t UNIT_GAP = useLarge ? 34 : 28;
-    const int16_t numW = dotMatrixWidth(vs, dotPitch, dotGap);
-    const int16_t unitW = dotMatrixWidth(unit, unitDotPitch, unitDotGap);
-    int16_t numX = (SCREEN_W - (numW + UNIT_GAP + unitW)) / 2;
-    redrawMatrixVolumeStringDiff(primaryValueCacheValue, vs, numX, VAL_Y, vCol, dotPitch, dotR, dotGap);
+    redrawMatrixVolumeStringDiff(primaryValueCacheValue, plan.valueStr, plan.numX, plan.valY, vCol, plan.dotPitch, plan.dotR, plan.dotGap);
   } else if (mainFontMode == FONT_ORBITRON) {
-    const int16_t UNIT_GAP = useLarge ? 30 : 24;
-    const int16_t UNIT_W   = AAFont_stringWidth(AA_SM, unit) + 8;
-    int16_t numW = fixedSlotLayoutWidthPx(true, layout, scaleOrb);
-    int16_t numX = (SCREEN_W - (numW + UNIT_GAP + UNIT_W)) / 2;
-    redrawFixedSlotVolumeStringDiff(&Orbitron48AA, true, primaryValueCacheValue, vs, layout, numX, VAL_Y, dimC(vCol), C_BG, scaleOrb);
+    redrawFixedSlotVolumeStringDiff(&Orbitron48AA, true, primaryValueCacheValue, plan.valueStr, plan.layout, plan.numX, plan.valY, dimC(vCol), C_BG, plan.scaleOrb);
   } else {
-    const int16_t UNIT_GAP = useLarge ? 22 : 18;
-    const int16_t UNIT_W   = AAFont_stringWidth(AA_SM, unit) + 8;
-    int16_t numW = fixedSlotLayoutWidthPx(false, layout, scaleStd);
-    int16_t numX = (SCREEN_W - (numW + UNIT_GAP + UNIT_W)) / 2;
-    redrawFixedSlotVolumeStringDiff(AA_VOL, false, primaryValueCacheValue, vs, layout, numX, VAL_Y, dimC(vCol), C_BG, scaleStd);
+    redrawFixedSlotVolumeStringDiff(AA_VOL, false, primaryValueCacheValue, plan.valueStr, plan.layout, plan.numX, plan.valY, dimC(vCol), C_BG, plan.scaleStd);
   }
   AAFont_endBatch();
 
@@ -1628,16 +1658,8 @@ static void drawMainPrimaryValue() {
   // (mute toggle, bypass, volumesprong bij inputwissel).
   //
   // Schaal en positie op basis van fontIsLarge (binair, crossfade regelt de overgang).
-  const bool    useLarge = fontIsLarge;
-  const int16_t VAL_Y    = (useLarge ? 340 : 310) - MAIN_MATRIX_VALUE_SHIFT_UP_PX;
-  const uint8_t scaleStd = useLarge ? 30 : 24;
-  const uint8_t scaleOrb = useLarge ? 50 : 40;
-  const uint8_t dotPitch = useLarge ? 17 : 14;
-  const uint8_t dotR     = useLarge ?  6 :  5;
-  const uint8_t dotGap   = useLarge ? 10 :  8;
-  const uint8_t unitDotPitch = useLarge ? 11 : 9;
-  const uint8_t unitDotR     = useLarge ?  4 : 3;
-  const uint8_t unitDotGap   = useLarge ?  7 : 5;
+  const bool useLarge = fontIsLarge;
+  PrimaryValueRenderPlan plan = buildPrimaryValueRenderPlan(useLarge);
   // Tijdens crossfade fadet de volume-alpha mee met panelBlend
   #define VOL_ALPHA(c) (xfadeState != XF_IDLE ? alpha565((c), panelBlend) : (c))
 
@@ -1646,54 +1668,35 @@ static void drawMainPrimaryValue() {
 
   if (currentVolume == VOL_OFF && !isMuted) {
     uint16_t c = VOL_ALPHA(governedMainAccent());
-    if      (mainFontMode == FONT_MATRIX)   drawDotMatrixStringScaled(AA_VOL, "Off", 0, VAL_Y, c, AA_CENTER, SCREEN_W, scaleStd, dotPitch, dotR, dotGap);
-    else if (mainFontMode == FONT_ORBITRON) AAFont_drawStringScaled(&Orbitron48AA, "Off", 0, VAL_Y, VOL_ALPHA(dimC(governedMainAccent())), C_BG, scaleOrb, AA_CENTER, SCREEN_W);
-    else                                    AAFont_drawStringScaled(AA_VOL, "Off", 0, VAL_Y, VOL_ALPHA(dimC(governedMainAccent())), C_BG, scaleStd, AA_CENTER, SCREEN_W);
+    if      (mainFontMode == FONT_MATRIX)   drawDotMatrixStringScaled(AA_VOL, "Off", 0, plan.valY, c, AA_CENTER, SCREEN_W, plan.scaleStd, plan.dotPitch, plan.dotR, plan.dotGap);
+    else if (mainFontMode == FONT_ORBITRON) AAFont_drawStringScaled(&Orbitron48AA, "Off", 0, plan.valY, VOL_ALPHA(dimC(governedMainAccent())), C_BG, plan.scaleOrb, AA_CENTER, SCREEN_W);
+    else                                    AAFont_drawStringScaled(AA_VOL, "Off", 0, plan.valY, VOL_ALPHA(dimC(governedMainAccent())), C_BG, plan.scaleStd, AA_CENTER, SCREEN_W);
   } else if (isMuted) {
     uint16_t c = VOL_ALPHA(governedMainAccent());
-    if      (mainFontMode == FONT_MATRIX)   drawDotMatrixStringScaled(AA_VOL, "Mute", 0, VAL_Y, c, AA_CENTER, SCREEN_W, scaleStd, dotPitch, dotR, dotGap);
-    else if (mainFontMode == FONT_ORBITRON) AAFont_drawStringScaled(&Orbitron48AA, "Mute", 0, VAL_Y, VOL_ALPHA(dimC(governedMainAccent())), C_BG, scaleOrb, AA_CENTER, SCREEN_W);
-    else                                    AAFont_drawStringScaled(AA_VOL, "Mute", 0, VAL_Y, VOL_ALPHA(dimC(governedMainAccent())), C_BG, scaleStd, AA_CENTER, SCREEN_W);
+    if      (mainFontMode == FONT_MATRIX)   drawDotMatrixStringScaled(AA_VOL, "Mute", 0, plan.valY, c, AA_CENTER, SCREEN_W, plan.scaleStd, plan.dotPitch, plan.dotR, plan.dotGap);
+    else if (mainFontMode == FONT_ORBITRON) AAFont_drawStringScaled(&Orbitron48AA, "Mute", 0, plan.valY, VOL_ALPHA(dimC(governedMainAccent())), C_BG, plan.scaleOrb, AA_CENTER, SCREEN_W);
+    else                                    AAFont_drawStringScaled(AA_VOL, "Mute", 0, plan.valY, VOL_ALPHA(dimC(governedMainAccent())), C_BG, plan.scaleStd, AA_CENTER, SCREEN_W);
   } else if (currentInput == surroundInput) {
     uint16_t c = VOL_ALPHA(governedMainAccent());
-    if      (mainFontMode == FONT_MATRIX)   drawDotMatrixStringScaled(AA_VOL, "Bypass", 0, VAL_Y, c, AA_CENTER, SCREEN_W, scaleStd, dotPitch, dotR, dotGap);
-    else if (mainFontMode == FONT_ORBITRON) AAFont_drawStringScaled(&Orbitron48AA, "Bypass", 0, VAL_Y, VOL_ALPHA(dimC(governedMainAccent())), C_BG, scaleOrb, AA_CENTER, SCREEN_W);
-    else                                    AAFont_drawStringScaled(AA_VOL, "Bypass", 0, VAL_Y, VOL_ALPHA(dimC(governedMainAccent())), C_BG, scaleStd, AA_CENTER, SCREEN_W);
+    if      (mainFontMode == FONT_MATRIX)   drawDotMatrixStringScaled(AA_VOL, "Bypass", 0, plan.valY, c, AA_CENTER, SCREEN_W, plan.scaleStd, plan.dotPitch, plan.dotR, plan.dotGap);
+    else if (mainFontMode == FONT_ORBITRON) AAFont_drawStringScaled(&Orbitron48AA, "Bypass", 0, plan.valY, VOL_ALPHA(dimC(governedMainAccent())), C_BG, plan.scaleOrb, AA_CENTER, SCREEN_W);
+    else                                    AAFont_drawStringScaled(AA_VOL, "Bypass", 0, plan.valY, VOL_ALPHA(dimC(governedMainAccent())), C_BG, plan.scaleStd, AA_CENTER, SCREEN_W);
   } else {
     uint8_t  volPct = (uint8_t)(55 + 45U * (255U - mainCalmBlend) / 255U);
     uint16_t vCol   = VOL_ALPHA(scale565(volColor(), volPct));
-    VolSlotLayout layout = currentVolSlotLayout();
 
     if (mainFontMode == FONT_MATRIX) {
-      char vs[16]; formatVolNumStrPadded(vs, currentVolume);
-      const char* unit = currentVolUnitLabel();
-      const int16_t UNIT_GAP = useLarge ? 34 : 28;
-      const int16_t numW = dotMatrixWidth(vs, dotPitch, dotGap);
-      const int16_t unitW = dotMatrixWidth(unit, unitDotPitch, unitDotGap);
-      int16_t numX = (SCREEN_W - (numW + UNIT_GAP + unitW)) / 2;
-      drawDotMatrixStringScaled(AA_VOL, vs, numX, VAL_Y, vCol, AA_LEFT, numW, scaleStd, dotPitch, dotR, dotGap);
+      drawDotMatrixStringScaled(AA_VOL, plan.valueStr, plan.numX, plan.valY, vCol, AA_LEFT, plan.numW, plan.scaleStd, plan.dotPitch, plan.dotR, plan.dotGap);
       uint8_t unitPct = (uint8_t)(38 + 22U * (255U - mainCalmBlend) / 255U);
-      drawDotMatrixStringScaled(AA_VOL, unit, numX + numW + UNIT_GAP, VAL_Y, VOL_ALPHA(scale565(volColor(), unitPct)), AA_LEFT, unitW, scaleStd, unitDotPitch, unitDotR, unitDotGap);
+      drawDotMatrixStringScaled(AA_VOL, plan.unit, plan.numX + plan.numW + plan.unitGap, plan.valY, VOL_ALPHA(scale565(volColor(), unitPct)), AA_LEFT, plan.unitW, plan.scaleStd, plan.unitDotPitch, plan.unitDotR, plan.unitDotGap);
     } else if (mainFontMode == FONT_ORBITRON) {
-      char vs[16]; formatVolNumStrPadded(vs, currentVolume);
-      const char* unit = currentVolUnitLabel();
-      const int16_t UNIT_GAP = useLarge ? 30 : 24;
-      const int16_t UNIT_W   = AAFont_stringWidth(AA_SM, unit) + 8;
-      int16_t numW = fixedSlotLayoutWidthPx(true, layout, scaleOrb);
-      int16_t numX = (SCREEN_W - (numW + UNIT_GAP + UNIT_W)) / 2;
-      drawFixedSlotVolumeString(&Orbitron48AA, true, vs, layout, numX, VAL_Y, VOL_ALPHA(dimC(vCol)), C_BG, scaleOrb);
+      drawFixedSlotVolumeString(&Orbitron48AA, true, plan.valueStr, plan.layout, plan.numX, plan.valY, VOL_ALPHA(dimC(vCol)), C_BG, plan.scaleOrb);
       uint8_t unitPct = (uint8_t)(38 + 22U * (255U - mainCalmBlend) / 255U);
-      AAFont_drawString(AA_SM, unit, numX + numW + UNIT_GAP, VAL_Y, VOL_ALPHA(dimC(scale565(volColor(), unitPct))), C_BG, AA_LEFT, UNIT_W);
+      AAFont_drawString(AA_SM, plan.unit, plan.numX + plan.numW + plan.unitGap, plan.valY, VOL_ALPHA(dimC(scale565(volColor(), unitPct))), C_BG, AA_LEFT, plan.unitW);
     } else {
-      char vs[16]; formatVolNumStrPadded(vs, currentVolume);
-      const char* unit = currentVolUnitLabel();
-      const int16_t UNIT_GAP = useLarge ? 22 : 18;
-      const int16_t UNIT_W   = AAFont_stringWidth(AA_SM, unit) + 8;
-      int16_t numW = fixedSlotLayoutWidthPx(false, layout, scaleStd);
-      int16_t numX = (SCREEN_W - (numW + UNIT_GAP + UNIT_W)) / 2;
-      drawFixedSlotVolumeString(AA_VOL, false, vs, layout, numX, VAL_Y, VOL_ALPHA(dimC(vCol)), C_BG, scaleStd);
+      drawFixedSlotVolumeString(AA_VOL, false, plan.valueStr, plan.layout, plan.numX, plan.valY, VOL_ALPHA(dimC(vCol)), C_BG, plan.scaleStd);
       uint8_t unitPct = (uint8_t)(38 + 22U * (255U - mainCalmBlend) / 255U);
-      AAFont_drawString(AA_SM, unit, numX + numW + UNIT_GAP, VAL_Y, VOL_ALPHA(dimC(scale565(volColor(), unitPct))), C_BG, AA_LEFT, UNIT_W);
+      AAFont_drawString(AA_SM, plan.unit, plan.numX + plan.numW + plan.unitGap, plan.valY, VOL_ALPHA(dimC(scale565(volColor(), unitPct))), C_BG, AA_LEFT, plan.unitW);
     }
   }
   AAFont_endBatch();
