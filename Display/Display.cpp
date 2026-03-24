@@ -3404,8 +3404,6 @@ static void drawSysRow(int16_t y, const char* label, const char* value,
   }
 }
 
-// Systeem toggle-rij: grote knop, dubbele hoogte, label boven waarde onder
-#define SYS_TOG_H (2 * SR_H + SYS_ROW_G)  // 118px — gelijk aan volume menu knoppen
 static const uint16_t AUTO_STANDBY_OPTIONS_MIN[] = {0, 15, 30, 45, 60, 90, 120};
 
 static const char* autoStandbyLabel(uint16_t minutes) {
@@ -3433,24 +3431,6 @@ static void cycleAutoStandbySetting() {
   autoStandbyDelayMin = AUTO_STANDBY_OPTIONS_MIN[currentIdx];
 }
 
-static void drawSysToggleRow(int16_t y, const char* label, const char* value, bool changed = false) {
-  const int16_t X = 16, W = SCREEN_W - 32;
-  const int16_t PAD = 8;
-  int16_t by = y + PAD, bh = SYS_TOG_H - PAD*2;
-  uint16_t bg  = dimC(VGC_BG_NORM);
-  uint16_t bdr = dimC(VGC_BDR_NORM);  // kader altijd zelfde — drukknop
-  uint16_t lc  = dimC(VGC_LBL_NORM);
-  uint16_t vc  = changed ? dimC(VGC_VAL_CHG) : dimC(VGC_VAL_SEL);
-  display.fillRoundRect(X, y, W, SYS_TOG_H, UI_CARD_R, bg);
-  display.fillRoundRect(X, by, W, bh, UI_CARD_R, bg);
-  display.drawRoundRect(X,   by,   W,   bh,   UI_CARD_R, bdr);
-  display.drawRoundRect(X+1, by+1, W-2, bh-2, UI_CARD_R, bdr);
-  int16_t lblY = by + bh/3 + 4;
-  int16_t valY = by + bh*2/3 + 8;
-  AAFont_drawString(AA_XXS, label, X + UI_PAD_L, lblY, lc, bg, AA_CENTER, W);
-  AAFont_drawString(AA_XXS, value, X + UI_PAD_L, valY, vc, bg, AA_CENTER, W);
-}
-
 void drawSystemScreen() {
   currentScreen = SCR_SYS;
   display.startBuffering();
@@ -3468,31 +3448,42 @@ void drawSystemScreen() {
              true, !diagBootDegraded);
   sprintf(buf, "%u", (unsigned)diagRecoveryAttempts);
   drawSysRow(SYS_ROW3, "Recovery tries", buf);
-  drawSysToggleRow(SYS_Y4, "Auto standby", autoStandbyLabel(autoStandbyDelayMin),
-                   autoStandbyDelayMin != SETTINGS_DEFAULT.autoStandbyDelayMin);
+  // 2x rij knoppen — consistent met overige menu layouts
+  const int16_t SYS_ROW1_N = 3;
+  const int16_t SYS_ROW2_N = 2;
+  const int16_t row1W = menuBtnW(SYS_ROW1_N);
+  const int16_t row2W = menuBtnW(SYS_ROW2_N);
+  const int16_t row2Y = MENU_BTN_Y;
+  const int16_t row1Y = MENU_BTN_Y - MENU_BTN_H - MENU_BTN_GAP;
 
-  // 4 knoppen onderaan
-  const int16_t SYS_N2 = 4;
-  const int16_t sbw = menuBtnW(SYS_N2);
-  drawMenuTogBtn(menuBtnX(0,sbw), MENU_BTN_Y, sbw, MENU_BTN_H, "Warm stby", warmStandbyEnabled ? "Enabled" : "Disabled");
+  drawMenuTogBtn(menuBtnX(0,row1W), row1Y, row1W, MENU_BTN_H,
+                 "Auto stby", autoStandbyLabel(autoStandbyDelayMin),
+                 autoStandbyDelayMin != SETTINGS_DEFAULT.autoStandbyDelayMin);
+  drawMenuTogBtn(menuBtnX(1,row1W), row1Y, row1W, MENU_BTN_H,
+                 "Warm stby", warmStandbyEnabled ? "Enabled" : "Disabled",
+                 warmStandbyEnabled != SETTINGS_DEFAULT.warmStandbyEnabled);
   // Warm trigger: grayed als warm standby niet actief is
   if (warmStandbyEnabled) {
-    drawMenuTogBtn(menuBtnX(1,sbw), MENU_BTN_Y, sbw, MENU_BTN_H, "Warm trig", warmTrigRelayClosed ? "on" : "off");
+    drawMenuTogBtn(menuBtnX(2,row1W), row1Y, row1W, MENU_BTN_H,
+                   "Warm trig", warmTrigRelayClosed ? "on" : "off",
+                   warmTrigRelayClosed != SETTINGS_DEFAULT.warmTrigRelayClosed);
   } else {
-    // Grayed — zelfde stijl als adv.sett. grayed knoppen
-    int16_t bx = menuBtnX(1,sbw), by = MENU_BTN_Y, bh = MENU_BTN_H;
+    int16_t bx = menuBtnX(2,row1W), by = row1Y, bh = MENU_BTN_H;
     uint16_t bg  = dimC(C_CARD_BG);
     uint16_t bdr = dimC(scale565(VGC_BDR_NORM, 50));
     uint16_t lc  = dimC(scale565(VGC_LBL_NORM, 50));
-    display.fillRoundRect(bx, by, sbw, bh, UI_CARD_R, bg);
-    display.drawRoundRect(bx,   by,   sbw,   bh,   UI_CARD_R, bdr);
-    display.drawRoundRect(bx+1, by+1, sbw-2, bh-2, UI_CARD_R, bdr);
+    display.fillRoundRect(bx, by, row1W, bh, UI_CARD_R, bg);
+    display.drawRoundRect(bx,   by,   row1W,   bh,   UI_CARD_R, bdr);
+    display.drawRoundRect(bx+1, by+1, row1W-2, bh-2, UI_CARD_R, bdr);
     int16_t lblY = by + bh/3 + 2, valY = by + bh*2/3 + 8;
-    AAFont_drawString(AA_XXS, "Warm trig", bx, lblY, lc, bg, AA_CENTER, sbw);
-    AAFont_drawString(AA_XXS, warmTrigRelayClosed ? "on" : "off", bx, valY, lc, bg, AA_CENTER, sbw);
+    AAFont_drawString(AA_XXS, "Warm trig", bx, lblY, lc, bg, AA_CENTER, row1W);
+    AAFont_drawString(AA_XXS, warmTrigRelayClosed ? "on" : "off", bx, valY, lc, bg, AA_CENTER, row1W);
   }
-  drawMenuTogBtn(menuBtnX(2,sbw), MENU_BTN_Y, sbw, MENU_BTN_H, "Rem. trigger", remoteTriggerEnabled ? "Enabled" : "Disabled");
-  drawMenuNavBtn(menuBtnX(3,sbw), MENU_BTN_Y, sbw, MENU_BTN_H, "Diagnostics \xBB");
+
+  drawMenuTogBtn(menuBtnX(0,row2W), row2Y, row2W, MENU_BTN_H,
+                 "Rem. trigger", remoteTriggerEnabled ? "Enabled" : "Disabled",
+                 remoteTriggerEnabled != SETTINGS_DEFAULT.remoteTriggerEnabled);
+  drawMenuNavBtn(menuBtnX(1,row2W), row2Y, row2W, MENU_BTN_H, "Diagnostics \xBB");
   display.endBuffering();
 }
 
