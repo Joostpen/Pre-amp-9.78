@@ -321,6 +321,9 @@ static inline uint8_t deepDimBrightness() {
   if (deep >= d && d > 3) deep = d - 3;  // altijd lager dan dim
   return deep;
 }
+static inline bool deepDimEnabled() {
+  return deepDimDelayMin < 61;  // 61 = Off
+}
 
 // ── Display instellingen ──────────────────────────────────────────────────────
 uint16_t dimDelaySec     = 30;
@@ -3365,7 +3368,9 @@ void drawDimSettingsScreen() {
   sprintf(buf, "%d%%",   uiBrightnessPct); drawDimRow(DS_ROW0_Y, "Brightness", buf, uiBrightnessPct / 100.0f,                          dsSelection == 0);
   sprintf(buf, "%d sec", dimDelaySec);     drawDimRow(DS_ROW1_Y, "Dim delay",  buf, constrain(dimDelaySec / 120.0f, 0.0f, 1.0f),        dsSelection == 1);
   sprintf(buf, "%d%%",   dimPercent);      drawDimRow(DS_ROW2_Y, "Dim level",  buf, dimPercent / 100.0f,                                 dsSelection == 2);
-  sprintf(buf, "%d min", deepDimDelayMin); drawDimRow(DS_ROW3_Y, "Deep dim delay",   buf, constrain(deepDimDelayMin / 30.0f, 0.0f, 1.0f),     dsSelection == 3);
+  if (deepDimEnabled()) sprintf(buf, "%d min", deepDimDelayMin);
+  else                  strcpy(buf, "Off");
+  drawDimRow(DS_ROW3_Y, "Deep dim delay",   buf, constrain(deepDimDelayMin / 61.0f, 0.0f, 1.0f),     dsSelection == 3);
 
   // 3 knoppen onderaan — shared helpers
   const int16_t DN  = 3;
@@ -4246,7 +4251,7 @@ void updateDisplay() {
       fadeTobrightness(dimBrightness());
     }
 
-    if (deepDimDelayMin < 61
+    if (deepDimEnabled()
         && currentScreen==SCR_MAIN && !inStandby && lastActivityMs>0
         && !deepDimActive && !fadeActive && screenBrightness > 0
         && screenBrightness <= dimBrightness()
@@ -4256,7 +4261,7 @@ void updateDisplay() {
       fadeTobrightness(deepDimBrightness());
     }
 
-    if (deepDimDelayMin < 61
+    if (deepDimEnabled()
         && currentScreen==SCR_MAIN && !inStandby && lastActivityMs>0
         && deepDimActive && !backlightOffActive && !fadeActive && screenBrightness > 0
         && (nowDim-lastActivityMs)>=((uint32_t)dimDelaySec*1000UL
