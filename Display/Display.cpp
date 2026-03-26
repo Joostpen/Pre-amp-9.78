@@ -249,7 +249,7 @@ static void tickVolRamp() {
 }
 static uint32_t standbyTextShowMs = 0;
 static bool     standbyTextLatch = false;
-#define STANDBY_TEXT_MS  12000
+#define STANDBY_TEXT_MS  6000
 #define CALM_AFTER_MS    6000
 #define BACKLIGHT_OFF_EXTRA_MS 1800000UL // +30 min na deep-dim: backlight volledig uit
 #define MENU_AUTOCLOSE_MS 300000UL   // 5 min inactiviteit op menu-schermen
