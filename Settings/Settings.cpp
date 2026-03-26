@@ -27,6 +27,7 @@ uint8_t maxVolume = SETTINGS_DEFAULT.maxVolume;
 bool remoteTriggerEnabled = SETTINGS_DEFAULT.remoteTriggerEnabled;
 bool largeFontOnDim       = SETTINGS_DEFAULT.largeFontOnDim;
 uint8_t encSensitivity    = SETTINGS_DEFAULT.encSensitivity;
+uint16_t autoStandbyDelayMin = SETTINGS_DEFAULT.autoStandbyDelayMin;
 
 
 // ── Debounce state ────────────────────────────────────────────────────────────
@@ -98,6 +99,7 @@ static void globalsToStruct(Settings& s) {
   s.dimDelaySec        = dimDelaySec;
   s.dimPercent         = dimPercent;
   s.deepDimDelayMin    = deepDimDelayMin;
+  s.autoStandbyDelayMin = autoStandbyDelayMin;
   s.uiBrightnessPct    = uiBrightnessPct;
   s.volUnitsMode       = volUnitsMode;
   s.volumeCurve = volumeCurve;
@@ -146,6 +148,20 @@ static void structToGlobals(const Settings& s) {
   dimDelaySec        = constrain(s.dimDelaySec,      10,  600);
   dimPercent         = constrain(s.dimPercent,         5,   95);
   deepDimDelayMin    = constrain(s.deepDimDelayMin,    1,   61);
+  switch (s.autoStandbyDelayMin) {
+    case 0:
+    case 15:
+    case 30:
+    case 45:
+    case 60:
+    case 90:
+    case 120:
+      autoStandbyDelayMin = s.autoStandbyDelayMin;
+      break;
+    default:
+      autoStandbyDelayMin = SETTINGS_DEFAULT.autoStandbyDelayMin;
+      break;
+  }
   uiBrightnessPct    = constrain(s.uiBrightnessPct,   20,  100);
   volUnitsMode       = constrain((int)s.volUnitsMode, 0, 2);
   volumeCurve        = constrain(s.volumeCurve, 0, 2);
