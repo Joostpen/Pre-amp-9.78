@@ -230,9 +230,9 @@ static void handleThemeMotionTouch(int16_t tx, int16_t ty) {
     return;
   }
 
-  // Knoppen onderaan: Font | Detail color | Large on dim
+  // Knoppen onderaan: Font | Detail color
   if (ty >= MENU_BTN_Y && ty < MENU_BTN_Y + MENU_BTN_H) {
-    const int16_t TN  = 3;
+    const int16_t TN  = 2;
     const int16_t tbw = menuBtnW(TN);
     if (tx >= menuBtnX(0,tbw) && tx < menuBtnX(0,tbw)+tbw) {
       mainFontMode = (uint8_t)((mainFontMode + 1) % 3); saveAndRedraw(drawThemeMotionScreen); return;
@@ -240,33 +240,57 @@ static void handleThemeMotionTouch(int16_t tx, int16_t ty) {
     if (tx >= menuBtnX(1,tbw) && tx < menuBtnX(1,tbw)+tbw) {
       detailColorFollow = !detailColorFollow; saveAndRedraw(drawThemeMotionScreen); return;
     }
-    if (tx >= menuBtnX(2,tbw) && tx < menuBtnX(2,tbw)+tbw) {
-      largeFontOnDim = !largeFontOnDim; saveAndRedraw(drawThemeMotionScreen); return;
-    }
   }
 }
 
 static void handleSystemTouch(int16_t tx, int16_t ty) {
   if (touchedHdrBack(tx,ty)) { drawMainMenu(); return; }
 
-  // 4 knoppen onderaan
-  const int16_t SYS_N3 = 4;
-  const int16_t sbw2 = menuBtnW(SYS_N3);
-  if (ty >= MENU_BTN_Y && ty < MENU_BTN_Y + MENU_BTN_H) {
-    for (int8_t i = 0; i < SYS_N3; i++) {
-      if (tx >= menuBtnX(i,sbw2) && tx < menuBtnX(i,sbw2)+sbw2) {
+  const int16_t row1Y = MENU_BTN_Y - MENU_BTN_H - MENU_BTN_GAP;
+  const int16_t row2Y = MENU_BTN_Y;
+  const int16_t row1W = menuBtnW(2);
+  const int16_t row2W = menuBtnW(3);
+
+  if (ty >= row1Y && ty < row1Y + MENU_BTN_H) {
+    for (int8_t i = 0; i < 2; i++) {
+      if (tx >= menuBtnX(i,row1W) && tx < menuBtnX(i,row1W)+row1W) {
         switch(i) {
-          case 0: warmStandbyEnabled = !warmStandbyEnabled; saveAndRedraw(drawSystemScreen); return;
-          case 1: if (warmStandbyEnabled) { warmTrigRelayClosed = !warmTrigRelayClosed; saveAndRedraw(drawSystemScreen); } return;
-          case 2:
+          case 0:
+            cycleAutoStandbySetting();
+            saveAndRedraw(drawSystemScreen);
+            return;
+          case 1:
+            warmStandbyEnabled = !warmStandbyEnabled;
+            saveAndRedraw(drawSystemScreen);
+            return;
+        }
+      }
+    }
+  }
+
+  if (ty >= row2Y && ty < row2Y + MENU_BTN_H) {
+    for (int8_t i = 0; i < 3; i++) {
+      if (tx >= menuBtnX(i,row2W) && tx < menuBtnX(i,row2W)+row2W) {
+        switch(i) {
+          case 0:
+            if (warmStandbyEnabled) {
+              warmTrigRelayClosed = !warmTrigRelayClosed;
+              saveAndRedraw(drawSystemScreen);
+            }
+            return;
+          case 1:
             remoteTriggerEnabled = !remoteTriggerEnabled;
             if (!remoteTriggerEnabled) {
               digitalWrite(PIN_REMOTE_TRIG, LOW);
             } else {
               resetRemoteTrigger();  // Herstart delay-venster zodat trigger alsnog fired
             }
-            saveAndRedraw(drawSystemScreen); return;
-          case 3: diagLastRefreshMs = millis(); drawDiagnosticsScreen(); return;
+            saveAndRedraw(drawSystemScreen);
+            return;
+          case 2:
+            diagLastRefreshMs = millis();
+            drawDiagnosticsScreen();
+            return;
         }
       }
     }
