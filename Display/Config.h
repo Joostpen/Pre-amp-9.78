@@ -79,7 +79,7 @@
 #define WATCHDOG_MS     8000  // Herstart na 8 seconden als loop() blokkeert
 
 // Settings storage key — verhoog versienummer als Settings struct wijzigt
-#define SETTINGS_KEY    "/kv/phi_pre10_v8"  // Bump bij elke Settings struct wijziging
+#define SETTINGS_KEY    "/kv/phi_pre10_v9"  // Bump bij elke Settings struct wijziging
 
 // Input selection
 #define INPUT_COUNT     5
