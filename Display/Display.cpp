@@ -248,6 +248,7 @@ static void tickVolRamp() {
   }
 }
 static uint32_t standbyTextShowMs = 0;
+static bool     standbyTextLatch = false;
 #define STANDBY_TEXT_MS  12000
 #define CALM_AFTER_MS    6000
 #define BACKLIGHT_OFF_EXTRA_MS 1800000UL // +30 min na deep-dim: backlight volledig uit
@@ -2191,13 +2192,13 @@ void drawMainScreen() {
   volBlinkNeedsRestore = false;
   panelBlend   = detailPanelActive() ? 255 : 0;
   if (inStandby) {
-    if (screenBrightness == 0) {
+    if (!standbyTextLatch) {
+      standbyTextLatch = true;
+      standbyTextShowMs = millis();
       fadeActive = false;  // voorkom dat lopende fade de standby-tekst direct wegdimt
       setScreenBrightness(activeBrightness());
-      standbyTextShowMs = millis();
-    } else if (standbyTextShowMs == 0) {
-      fadeActive = false;  // idem bij eerste in-standby redraw met al actieve backlight
-      standbyTextShowMs = millis();
+    } else if (screenBrightness == 0) {
+      fadeActive = false;
       setScreenBrightness(activeBrightness());
     }
     if ((millis() - standbyTextShowMs) < STANDBY_TEXT_MS) drawStandbyText();
@@ -2205,6 +2206,7 @@ void drawMainScreen() {
     display.setFont(NULL);
     return;
   }
+  standbyTextLatch = false;
   standbyTextShowMs = 0;
   if (screenBrightness == 0) setScreenBrightness(activeBrightness());
   display.startBuffering();
