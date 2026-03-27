@@ -46,6 +46,7 @@ struct Settings {
   uint16_t dimDelaySec;                  // Auto-dim vertraging in seconden
   uint8_t  dimPercent;                   // Dim percentage (0-100)
   uint8_t  deepDimDelayMin;             // Deep-dim vertraging in minuten na dim (1-60)
+  uint16_t autoStandbyDelayMin;          // Auto-standby vertraging in minuten (0=uit)
   uint8_t  uiBrightnessPct;              // Algemene display helderheid (20-100)
   uint8_t  volUnitsMode;                 // 0=steps, 1=dB, 2=0-100
   uint8_t  volumeCurve;                  // 0=linear, 1=adaptive (zone), 2=velocity
@@ -73,7 +74,7 @@ struct Settings {
 
 // ── Standaard waarden ─────────────────────────────────────────────────────────
 static const Settings SETTINGS_DEFAULT = {
-  29,     // structVersion — startupVolume uitgebreid naar array per ingang
+  30,     // structVersion — auto standby timer toegevoegd
   { "DAC", "Phono", "Tape", "Tuner", "Surround" },
     0,    // gainLF     =   0.0 dB
   -12,    // gainLFOUT  =  -6.0 dB
@@ -88,6 +89,7 @@ static const Settings SETTINGS_DEFAULT = {
    30,    // dimDelaySec = 30 seconden
    50,    // dimPercent  = 50%
    10,    // deepDimDelayMin = 10 minuten
+   60,    // autoStandbyDelayMin = 60 minuten
   100,    // uiBrightnessPct = 100%
     1,    // volUnitsMode    = dB weergave
     1,    // volumeCurve = 1 (adaptive)
@@ -128,6 +130,7 @@ extern int8_t   inputOffset[INPUT_COUNT]; // Volume-offset per ingang (0.5 dB/st
 extern uint16_t dimDelaySec;
 extern uint8_t  dimPercent;
 extern uint8_t  deepDimDelayMin;
+extern uint16_t autoStandbyDelayMin;
 extern uint8_t  uiBrightnessPct;
 extern uint8_t  volUnitsMode;
 #define VOL_CURVE_LINEAR    0

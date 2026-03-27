@@ -52,6 +52,8 @@
 GigaDisplay_GFX          display;
 Arduino_GigaDisplayTouch touch;
 GigaDisplayBacklight backlight;
+GigaDisplay_GFX*         _aaDisplay = nullptr;
+bool                     _aaBatchWriteActive = false;
 
 extern uint8_t screenBrightness;
 
@@ -263,6 +265,26 @@ bool            mainCalmMode     = false;
 static uint8_t  mainCalmBlend    = 0;     // 0..255 voor vloeiende calm-transition
 static uint8_t  panelBlend       = 255;   // 0=volumezone+panel onzichtbaar, 255=volledig zichtbaar
 static bool     fontIsLarge      = false; // huidige weergavestaat: groot of klein font
+static bool     primaryValueCacheValid = false;
+static uint8_t  primaryValueCacheFontMode = 0xFF;
+static uint8_t  primaryValueCacheUnitsMode = 0xFF;
+static bool     primaryValueCacheLarge = false;
+static char     primaryValueCacheValue[16] = {0};
+static char     primaryValueCacheUnit[8] = {0};
+static bool     detailAttenCacheValid = false;
+static char     detailAttenCacheValue[14] = {0};
+static uint16_t detailAttenCacheColor = 0;
+static bool     detailBalanceCacheValid = false;
+static char     detailBalanceCacheValue[14] = {0};
+static uint16_t detailBalanceCacheColor = 0;
+enum MainDirtyFlag : uint8_t {
+  DIRTY_MAIN_NAME    = 1 << 0,
+  DIRTY_MAIN_STATUS  = 1 << 1,
+  DIRTY_MAIN_HAIR    = 1 << 2,
+  DIRTY_MAIN_PRIMARY = 1 << 3,
+  DIRTY_MAIN_PANEL   = 1 << 4,
+};
+static uint8_t  mainDirtyFlags = 0;
 // Crossfade state: IDLE → FADE_OUT → SNAP → FADE_IN → IDLE
 enum XfadeState : uint8_t { XF_IDLE, XF_FADE_OUT, XF_FADE_IN };
 static XfadeState xfadeState     = XF_IDLE;
@@ -469,6 +491,9 @@ static void drawMainPrimaryValue();
 static void drawScreenHeader(const char* title);
 static void clearAndDrawInputName();
 static void clearPrimaryValueZone();
+static void markMainDirty(uint8_t flags);
+static void flushMainDirty();
+static void invalidateDetailValueCaches();
 static bool isDefaultVGToggle(const char* label);
 static uint16_t mainHairlineColor();
 static void drawMainHairline();
@@ -1230,10 +1255,21 @@ static const DotGlyph5x7 DOT_GLYPHS_5X7[] = {
 };
 
 static const uint8_t* glyph5x7(char c, char nextC) {
-  c = toDotMatrixChar(c, nextC);
-  for (size_t i = 0; i < sizeof(DOT_GLYPHS_5X7)/sizeof(DOT_GLYPHS_5X7[0]); ++i) {
-    if (DOT_GLYPHS_5X7[i].c == c) return DOT_GLYPHS_5X7[i].rows;
+  static bool lookupInit = false;
+  static const uint8_t* lookup[128];
+  if (!lookupInit) {
+    for (size_t i = 0; i < sizeof(lookup) / sizeof(lookup[0]); ++i) {
+      lookup[i] = DOT_GLYPHS_5X7[0].rows;
+    }
+    for (size_t i = 0; i < sizeof(DOT_GLYPHS_5X7) / sizeof(DOT_GLYPHS_5X7[0]); ++i) {
+      uint8_t idx = (uint8_t)DOT_GLYPHS_5X7[i].c;
+      if (idx < sizeof(lookup) / sizeof(lookup[0])) lookup[idx] = DOT_GLYPHS_5X7[i].rows;
+    }
+    lookupInit = true;
   }
+  c = toDotMatrixChar(c, nextC);
+  uint8_t idx = (uint8_t)c;
+  if (idx < sizeof(lookup) / sizeof(lookup[0])) return lookup[idx];
   return DOT_GLYPHS_5X7[0].rows; // space fallback
 }
 
@@ -1253,9 +1289,8 @@ static inline uint8_t safeCoreRadius(uint8_t pitch, uint8_t dotR) {
 }
 
 static inline void drawMatrixDot(int16_t px, int16_t py, uint16_t coreCol, uint16_t glowCol,
-                                 uint8_t pitch, uint8_t dotR) {
+                                 uint8_t coreR) {
   if (!_aaDisplay) return;
-  uint8_t coreR = safeCoreRadius(pitch, dotR);
 
   if (coreR == 0) {
     _aaDisplay->drawPixel(px, py, coreCol);
@@ -1273,6 +1308,7 @@ static void drawDotMatrixString(const AAFont* /*font*/, const char* str,
                                 uint16_t fgColor, AAAlign align = AA_LEFT, int16_t areaW = 0,
                                 uint8_t pitch = 3, uint8_t dotR = 1, uint8_t charGap = 1) {
   if (!str || !_aaDisplay) return;
+  bool manageWrite = !_aaBatchWriteActive;
   int16_t startX = x;
   int16_t tw = dotMatrixWidth(str, pitch, charGap);
   if (align == AA_CENTER || align == AA_RIGHT) {
@@ -1284,8 +1320,9 @@ static void drawDotMatrixString(const AAFont* /*font*/, const char* str,
   int16_t curX = startX;
   uint16_t coreCol = dimC(scale565(fgColor, 100));
   uint16_t glowCol  = dimC(scale565(fgColor,  62));
+  uint8_t coreR = safeCoreRadius(pitch, dotR);
 
-  _aaDisplay->startWrite();
+  if (manageWrite) AAFont_beginBatch();
 
   for (const char* p = str; *p; ++p) {
     const uint8_t* rows = glyph5x7(*p, *(p + 1));
@@ -1295,13 +1332,13 @@ static void drawDotMatrixString(const AAFont* /*font*/, const char* str,
         if (!(rowBits & (1u << (4 - rx)))) continue;
         int16_t px = curX + rx * pitch;
         int16_t py = topY + ry * pitch;
-        drawMatrixDot(px, py, coreCol, glowCol, pitch, dotR);
+        drawMatrixDot(px, py, coreCol, glowCol, coreR);
       }
     }
     curX += (5 * pitch + charGap);
   }
 
-  _aaDisplay->endWrite();
+  if (manageWrite) AAFont_endBatch();
 }
 
 static void drawDotMatrixStringScaled(const AAFont* /*font*/, const char* str,
@@ -1348,49 +1385,76 @@ static void formatVolStr(char* buf, uint8_t vol) {
 }
 
 
-// Berekent pixelbreedte van een volumestring in AA_VOL scaled 1.5x
-// op basis van de bekende xAdvance waarden (48pt, scale=24/16=1.5)
-static int16_t volStrWidthPx(const char* s) {
-  static const uint8_t xAdv[] = {
-    // index = c - 0x20, Artifakt 48pt xAdvance waarden
-    25,0,0,0,0,0,0,0,0,0,0,43,0,40,25,0, // sp ! " # $ % & ' ( ) * + , - . /
-    59,44,49,54,55,53,55,47,58,54         // 0-9
-  };
-  int16_t w = 0;
-  for (const char* p = s; *p; p++) {
-    uint8_t idx = (uint8_t)(*p) - 0x20;
-    uint8_t xa = (idx < sizeof(xAdv)) ? xAdv[idx] : 50;
-    w += (int16_t)(xa * 3 / 2);  // scale 1.5x (24/16)
-  }
-  return w;
+enum VolSlotKind : uint8_t {
+  VOL_SLOT_SIGN,
+  VOL_SLOT_DIGIT,
+  VOL_SLOT_DOT
+};
+
+struct VolSlotLayout {
+  const VolSlotKind* slots;
+  uint8_t count;
+};
+
+static const VolSlotKind VOL_LAYOUT_DB[]      = {VOL_SLOT_SIGN, VOL_SLOT_DIGIT, VOL_SLOT_DIGIT, VOL_SLOT_DIGIT, VOL_SLOT_DOT, VOL_SLOT_DIGIT};
+static const VolSlotKind VOL_LAYOUT_INTEGER[] = {VOL_SLOT_DIGIT, VOL_SLOT_DIGIT, VOL_SLOT_DIGIT};
+
+static VolSlotLayout currentVolSlotLayout() {
+  if (volUnitsMode == VOL_UNITS_DB) return {VOL_LAYOUT_DB, (uint8_t)(sizeof(VOL_LAYOUT_DB) / sizeof(VOL_LAYOUT_DB[0]))};
+  return {VOL_LAYOUT_INTEGER, (uint8_t)(sizeof(VOL_LAYOUT_INTEGER) / sizeof(VOL_LAYOUT_INTEGER[0]))};
 }
 
-// Breedte berekening voor Orbitron @ scale_x16=32 (2x)
-static int16_t volStrWidthPxOrbitron(const char* s) {
-  static const uint8_t xAdv[] = {
-    // index = c - 0x20, Orbitron 48pt xAdvance waarden
-    12,0,0,0,0,0,0,0,0,0,0,0,0,25,11,0, // sp ! " # $ % & ' ( ) * + , - . /
-    40,19,40,40,35,40,39,32,40,40        // 0-9
-  };
-  int16_t w = 0;
-  for (const char* p = s; *p; p++) {
-    uint8_t idx = (uint8_t)(*p) - 0x20;
-    uint8_t xa = (idx < sizeof(xAdv)) ? xAdv[idx] : 40;
-    w += (int16_t)(xa * 40 / 16);  // scale 2.5x (40/16)
-  }
-  return w;
-}
-
-static void formatVolNumStr(char* buf, uint8_t vol) {
+static void formatVolNumStrPadded(char* buf, uint8_t vol) {
   if (vol == VOL_OFF) { strcpy(buf, "Off"); return; }
   if (volUnitsMode == VOL_UNITS_DB) {
     float dB = (vol * 0.5f) - 115.5f;
-    sprintf(buf, "%.1f", dB);
+    snprintf(buf, 16, "%6.1f", dB);
   } else if (volUnitsMode == VOL_UNITS_PERCENT) {
     uint16_t pct = (uint16_t)(((uint32_t)vol * 100U + 127U) / 255U);
-    sprintf(buf, "%u", (unsigned)pct);
+    snprintf(buf, 16, "%3u", (unsigned)pct);
   } else {
-    sprintf(buf, "%u", (unsigned)vol);
+    snprintf(buf, 16, "%3u", (unsigned)vol);
+  }
+}
+
+static int16_t scaledAdvancePx(int16_t advance, uint8_t scale_x16) {
+  return (int16_t)((advance * scale_x16) + 8) / 16;
+}
+
+static int16_t fixedSlotAdvancePx(bool orbitron, VolSlotKind slot, uint8_t scale_x16) {
+  const int16_t digitAdvance = orbitron ? 40 : 59;
+  const int16_t signAdvance  = orbitron ? 25 : 40;
+  const int16_t dotAdvance   = orbitron ? 11 : 25;
+  const int16_t baseAdvance  = (slot == VOL_SLOT_DIGIT) ? digitAdvance
+                             : (slot == VOL_SLOT_DOT)   ? dotAdvance
+                                                        : signAdvance;
+  return scaledAdvancePx(baseAdvance, scale_x16);
+}
+
+static int16_t fixedSlotLayoutWidthPx(bool orbitron, const VolSlotLayout& layout, uint8_t scale_x16) {
+  int16_t width = 0;
+  for (uint8_t i = 0; i < layout.count; ++i) width += fixedSlotAdvancePx(orbitron, layout.slots[i], scale_x16);
+  return width;
+}
+
+static void drawFixedSlotVolumeString(const AAFont* font, bool orbitron,
+                                      const char* str, const VolSlotLayout& layout,
+                                      int16_t x, int16_t baseline,
+                                      uint16_t fgColor, uint16_t bgColor,
+                                      uint8_t scale_x16) {
+  if (!font || !str) return;
+
+  char ch[2] = {'\0', '\0'};
+  int16_t curX = x;
+  for (uint8_t i = 0; i < layout.count && str[i]; ++i) {
+    int16_t cellW = fixedSlotAdvancePx(orbitron, layout.slots[i], scale_x16);
+    if (str[i] != ' ') {
+      ch[0] = str[i];
+      int16_t glyphW = AAFont_stringWidthScaled(font, ch, scale_x16);
+      int16_t glyphX = curX + ((cellW - glyphW) / 2);
+      AAFont_drawStringScaled(font, ch, glyphX, baseline, fgColor, bgColor, scale_x16, AA_LEFT, 0);
+    }
+    curX += cellW;
   }
 }
 
@@ -1400,7 +1464,48 @@ static const char* currentVolUnitLabel() {
   return "St.";
 }
 
+static void invalidatePrimaryValueCache() {
+  primaryValueCacheValid = false;
+  primaryValueCacheFontMode = 0xFF;
+  primaryValueCacheUnitsMode = 0xFF;
+  primaryValueCacheLarge = false;
+  primaryValueCacheValue[0] = '\0';
+  primaryValueCacheUnit[0] = '\0';
+}
+
+static void syncPrimaryValueCache(bool useLarge) {
+  if (currentVolume == VOL_OFF || isMuted || currentInput == surroundInput) {
+    invalidatePrimaryValueCache();
+    return;
+  }
+  formatVolNumStrPadded(primaryValueCacheValue, currentVolume);
+  strncpy(primaryValueCacheUnit, currentVolUnitLabel(), sizeof(primaryValueCacheUnit) - 1);
+  primaryValueCacheUnit[sizeof(primaryValueCacheUnit) - 1] = '\0';
+  primaryValueCacheFontMode = mainFontMode;
+  primaryValueCacheUnitsMode = volUnitsMode;
+  primaryValueCacheLarge = useLarge;
+  primaryValueCacheValid = true;
+}
+
+static int16_t primaryValueTextTopPx() {
+  return 176;
+}
+
+static int16_t primaryValueTextBottomPx() {
+  int16_t zoneBot = detailPanelActive() ? (DP_TOP - 4) : SCREEN_H;
+  return zoneBot > primaryValueTextTopPx() ? zoneBot : primaryValueTextTopPx();
+}
+
+static void clearPrimaryValueColumnRect(int16_t x, int16_t w) {
+  if (w <= 0) return;
+  int16_t top = primaryValueTextTopPx();
+  int16_t bottom = primaryValueTextBottomPx();
+  if (bottom <= top) return;
+  display.fillRect(x, top, w, bottom - top, C_BG);
+}
+
 static void clearPrimaryValueZone() {
+  invalidatePrimaryValueCache();
   int16_t zoneBot = detailPanelActive() ? DP_TOP : SCREEN_H;
   display.fillRect(0, 155, SCREEN_W, zoneBot - 155, C_BG);
 }
@@ -1415,6 +1520,145 @@ static void clearPrimaryValueTextArea() {
 // Wist volumezone + panelzone — gebruikt door crossfade
 static void clearMainContentZone() {
   display.fillRect(0, 155, SCREEN_W, SCREEN_H - 155, C_BG);
+  invalidateDetailValueCaches();
+}
+
+static void invalidateDetailValueCaches() {
+  detailAttenCacheValid = false;
+  detailAttenCacheValue[0] = '\0';
+  detailAttenCacheColor = 0;
+  detailBalanceCacheValid = false;
+  detailBalanceCacheValue[0] = '\0';
+  detailBalanceCacheColor = 0;
+}
+
+static void redrawFixedSlotVolumeStringDiff(const AAFont* font, bool orbitron,
+                                            const char* prevStr, const char* nextStr,
+                                            const VolSlotLayout& layout,
+                                            int16_t x, int16_t baseline,
+                                            uint16_t fgColor, uint16_t bgColor,
+                                            uint8_t scale_x16) {
+  if (!font || !prevStr || !nextStr) return;
+  char ch[2] = {'\0', '\0'};
+  int16_t curX = x;
+  for (uint8_t i = 0; i < layout.count && nextStr[i]; ++i) {
+    int16_t cellW = fixedSlotAdvancePx(orbitron, layout.slots[i], scale_x16);
+    if (prevStr[i] != nextStr[i]) {
+      clearPrimaryValueColumnRect(curX - 2, cellW + 4);
+      if (nextStr[i] != ' ') {
+        ch[0] = nextStr[i];
+        int16_t glyphW = AAFont_stringWidthScaled(font, ch, scale_x16);
+        int16_t glyphX = curX + ((cellW - glyphW) / 2);
+        AAFont_drawStringScaled(font, ch, glyphX, baseline, fgColor, bgColor, scale_x16, AA_LEFT, 0);
+      }
+    }
+    curX += cellW;
+  }
+}
+
+static void redrawMatrixVolumeStringDiff(const char* prevStr, const char* nextStr,
+                                         int16_t x, int16_t baseline,
+                                         uint16_t fgColor, uint8_t pitch, uint8_t dotR, uint8_t charGap) {
+  if (!prevStr || !nextStr) return;
+  char ch[2] = {'\0', '\0'};
+  int16_t curX = x;
+  const int16_t cellW = 5 * pitch + charGap;
+  const int16_t clearPad = dotR + 3;
+  for (const char* pPrev = prevStr, *pNext = nextStr; *pNext; ++pPrev, ++pNext) {
+    if (*pPrev != *pNext) {
+      clearPrimaryValueColumnRect(curX - clearPad, cellW + 2 * clearPad);
+      if (*pNext != ' ') {
+        ch[0] = *pNext;
+        drawDotMatrixStringScaled(AA_VOL, ch, curX, baseline, fgColor, AA_LEFT, cellW, 0, pitch, dotR, charGap);
+      }
+    }
+    curX += cellW;
+  }
+}
+
+struct PrimaryValueRenderPlan {
+  bool useLarge;
+  int16_t valY;
+  uint8_t scaleStd;
+  uint8_t scaleOrb;
+  uint8_t dotPitch;
+  uint8_t dotR;
+  uint8_t dotGap;
+  uint8_t unitDotPitch;
+  uint8_t unitDotR;
+  uint8_t unitDotGap;
+  int16_t unitGap;
+  int16_t numW;
+  int16_t unitW;
+  int16_t numX;
+  VolSlotLayout layout;
+  char valueStr[16];
+  const char* unit;
+};
+
+static PrimaryValueRenderPlan buildPrimaryValueRenderPlan(bool useLarge) {
+  PrimaryValueRenderPlan plan{};
+  plan.useLarge = useLarge;
+  plan.valY     = (useLarge ? 340 : 310) - MAIN_MATRIX_VALUE_SHIFT_UP_PX;
+  plan.scaleStd = useLarge ? 30 : 24;
+  plan.scaleOrb = useLarge ? 50 : 40;
+  plan.dotPitch = useLarge ? 17 : 14;
+  plan.dotR     = useLarge ?  6 :  5;
+  plan.dotGap   = useLarge ? 10 :  8;
+  plan.unitDotPitch = useLarge ? 11 : 9;
+  plan.unitDotR     = useLarge ?  4 : 3;
+  plan.unitDotGap   = useLarge ?  7 : 5;
+  plan.layout = currentVolSlotLayout();
+  formatVolNumStrPadded(plan.valueStr, currentVolume);
+  plan.unit = currentVolUnitLabel();
+
+  if (mainFontMode == FONT_MATRIX) {
+    plan.unitGap = useLarge ? 34 : 28;
+    plan.numW = dotMatrixWidth(plan.valueStr, plan.dotPitch, plan.dotGap);
+    plan.unitW = dotMatrixWidth(plan.unit, plan.unitDotPitch, plan.unitDotGap);
+  } else if (mainFontMode == FONT_ORBITRON) {
+    plan.unitGap = useLarge ? 30 : 24;
+    plan.numW = fixedSlotLayoutWidthPx(true, plan.layout, plan.scaleOrb);
+    plan.unitW = AAFont_stringWidth(AA_SM, plan.unit) + 8;
+  } else {
+    plan.unitGap = useLarge ? 22 : 18;
+    plan.numW = fixedSlotLayoutWidthPx(false, plan.layout, plan.scaleStd);
+    plan.unitW = AAFont_stringWidth(AA_SM, plan.unit) + 8;
+  }
+  plan.numX = (SCREEN_W - (plan.numW + plan.unitGap + plan.unitW)) / 2;
+  return plan;
+}
+
+static bool redrawMainPrimaryValueIncremental() {
+  if (!primaryValueCacheValid) return false;
+  if (currentVolume == VOL_OFF || isMuted || currentInput == surroundInput) return false;
+
+  const bool useLarge = fontIsLarge;
+  if (primaryValueCacheFontMode != mainFontMode ||
+      primaryValueCacheUnitsMode != volUnitsMode ||
+      primaryValueCacheLarge != useLarge) {
+    return false;
+  }
+
+  PrimaryValueRenderPlan plan = buildPrimaryValueRenderPlan(useLarge);
+  if (strcmp(primaryValueCacheUnit, plan.unit) != 0) return false;
+  if (strcmp(primaryValueCacheValue, plan.valueStr) == 0) return true;
+
+  uint8_t  volPct = (uint8_t)(55 + 45U * (255U - mainCalmBlend) / 255U);
+  uint16_t vCol   = scale565(volColor(), volPct);
+
+  AAFont_beginBatch();
+  if (mainFontMode == FONT_MATRIX) {
+    redrawMatrixVolumeStringDiff(primaryValueCacheValue, plan.valueStr, plan.numX, plan.valY, vCol, plan.dotPitch, plan.dotR, plan.dotGap);
+  } else if (mainFontMode == FONT_ORBITRON) {
+    redrawFixedSlotVolumeStringDiff(&Orbitron48AA, true, primaryValueCacheValue, plan.valueStr, plan.layout, plan.numX, plan.valY, dimC(vCol), C_BG, plan.scaleOrb);
+  } else {
+    redrawFixedSlotVolumeStringDiff(AA_VOL, false, primaryValueCacheValue, plan.valueStr, plan.layout, plan.numX, plan.valY, dimC(vCol), C_BG, plan.scaleStd);
+  }
+  AAFont_endBatch();
+
+  syncPrimaryValueCache(useLarge);
+  return true;
 }
 
 static void drawMainPrimaryValue() {
@@ -1424,62 +1668,49 @@ static void drawMainPrimaryValue() {
   // (mute toggle, bypass, volumesprong bij inputwissel).
   //
   // Schaal en positie op basis van fontIsLarge (binair, crossfade regelt de overgang).
-  const bool    useLarge = fontIsLarge;
-  const int16_t VAL_Y    = (useLarge ? 340 : 310) - MAIN_MATRIX_VALUE_SHIFT_UP_PX;
-  const uint8_t scaleStd = useLarge ? 30 : 24;
-  const uint8_t scaleOrb = useLarge ? 50 : 40;
-  const uint8_t dotPitch = useLarge ? 17 : 14;
-  const uint8_t dotR     = useLarge ?  6 :  5;
-  const uint8_t dotGap   = useLarge ? 10 :  8;
+  const bool useLarge = fontIsLarge;
+  PrimaryValueRenderPlan plan = buildPrimaryValueRenderPlan(useLarge);
   // Tijdens crossfade fadet de volume-alpha mee met panelBlend
   #define VOL_ALPHA(c) (xfadeState != XF_IDLE ? alpha565((c), panelBlend) : (c))
 
+  AAFont_beginBatch();
   if (mainFontMode != FONT_STANDARD) clearPrimaryValueTextArea();
 
   if (currentVolume == VOL_OFF && !isMuted) {
     uint16_t c = VOL_ALPHA(governedMainAccent());
-    if      (mainFontMode == FONT_MATRIX)   drawDotMatrixStringScaled(AA_VOL, "Off", 0, VAL_Y, c, AA_CENTER, SCREEN_W, scaleStd, dotPitch, dotR, dotGap);
-    else if (mainFontMode == FONT_ORBITRON) AAFont_drawStringScaled(&Orbitron48AA, "Off", 0, VAL_Y, VOL_ALPHA(dimC(governedMainAccent())), C_BG, scaleOrb, AA_CENTER, SCREEN_W);
-    else                                    AAFont_drawStringScaled(AA_VOL, "Off", 0, VAL_Y, VOL_ALPHA(dimC(governedMainAccent())), C_BG, scaleStd, AA_CENTER, SCREEN_W);
+    if      (mainFontMode == FONT_MATRIX)   drawDotMatrixStringScaled(AA_VOL, "Off", 0, plan.valY, c, AA_CENTER, SCREEN_W, plan.scaleStd, plan.dotPitch, plan.dotR, plan.dotGap);
+    else if (mainFontMode == FONT_ORBITRON) AAFont_drawStringScaled(&Orbitron48AA, "Off", 0, plan.valY, VOL_ALPHA(dimC(governedMainAccent())), C_BG, plan.scaleOrb, AA_CENTER, SCREEN_W);
+    else                                    AAFont_drawStringScaled(AA_VOL, "Off", 0, plan.valY, VOL_ALPHA(dimC(governedMainAccent())), C_BG, plan.scaleStd, AA_CENTER, SCREEN_W);
   } else if (isMuted) {
     uint16_t c = VOL_ALPHA(governedMainAccent());
-    if      (mainFontMode == FONT_MATRIX)   drawDotMatrixStringScaled(AA_VOL, "Mute", 0, VAL_Y, c, AA_CENTER, SCREEN_W, scaleStd, dotPitch, dotR, dotGap);
-    else if (mainFontMode == FONT_ORBITRON) AAFont_drawStringScaled(&Orbitron48AA, "Mute", 0, VAL_Y, VOL_ALPHA(dimC(governedMainAccent())), C_BG, scaleOrb, AA_CENTER, SCREEN_W);
-    else                                    AAFont_drawStringScaled(AA_VOL, "Mute", 0, VAL_Y, VOL_ALPHA(dimC(governedMainAccent())), C_BG, scaleStd, AA_CENTER, SCREEN_W);
+    if      (mainFontMode == FONT_MATRIX)   drawDotMatrixStringScaled(AA_VOL, "Mute", 0, plan.valY, c, AA_CENTER, SCREEN_W, plan.scaleStd, plan.dotPitch, plan.dotR, plan.dotGap);
+    else if (mainFontMode == FONT_ORBITRON) AAFont_drawStringScaled(&Orbitron48AA, "Mute", 0, plan.valY, VOL_ALPHA(dimC(governedMainAccent())), C_BG, plan.scaleOrb, AA_CENTER, SCREEN_W);
+    else                                    AAFont_drawStringScaled(AA_VOL, "Mute", 0, plan.valY, VOL_ALPHA(dimC(governedMainAccent())), C_BG, plan.scaleStd, AA_CENTER, SCREEN_W);
   } else if (currentInput == surroundInput) {
     uint16_t c = VOL_ALPHA(governedMainAccent());
-    if      (mainFontMode == FONT_MATRIX)   drawDotMatrixStringScaled(AA_VOL, "Bypass", 0, VAL_Y, c, AA_CENTER, SCREEN_W, scaleStd, dotPitch, dotR, dotGap);
-    else if (mainFontMode == FONT_ORBITRON) AAFont_drawStringScaled(&Orbitron48AA, "Bypass", 0, VAL_Y, VOL_ALPHA(dimC(governedMainAccent())), C_BG, scaleOrb, AA_CENTER, SCREEN_W);
-    else                                    AAFont_drawStringScaled(AA_VOL, "Bypass", 0, VAL_Y, VOL_ALPHA(dimC(governedMainAccent())), C_BG, scaleStd, AA_CENTER, SCREEN_W);
+    if      (mainFontMode == FONT_MATRIX)   drawDotMatrixStringScaled(AA_VOL, "Bypass", 0, plan.valY, c, AA_CENTER, SCREEN_W, plan.scaleStd, plan.dotPitch, plan.dotR, plan.dotGap);
+    else if (mainFontMode == FONT_ORBITRON) AAFont_drawStringScaled(&Orbitron48AA, "Bypass", 0, plan.valY, VOL_ALPHA(dimC(governedMainAccent())), C_BG, plan.scaleOrb, AA_CENTER, SCREEN_W);
+    else                                    AAFont_drawStringScaled(AA_VOL, "Bypass", 0, plan.valY, VOL_ALPHA(dimC(governedMainAccent())), C_BG, plan.scaleStd, AA_CENTER, SCREEN_W);
   } else {
     uint8_t  volPct = (uint8_t)(55 + 45U * (255U - mainCalmBlend) / 255U);
     uint16_t vCol   = VOL_ALPHA(scale565(volColor(), volPct));
 
     if (mainFontMode == FONT_MATRIX) {
-      char vs[16]; formatVolStr(vs, currentVolume);
-      drawDotMatrixStringScaled(AA_VOL, vs, 0, VAL_Y, vCol, AA_CENTER, SCREEN_W, scaleStd, dotPitch, dotR, dotGap);
+      drawDotMatrixStringScaled(AA_VOL, plan.valueStr, plan.numX, plan.valY, vCol, AA_LEFT, plan.numW, plan.scaleStd, plan.dotPitch, plan.dotR, plan.dotGap);
+      uint8_t unitPct = (uint8_t)(38 + 22U * (255U - mainCalmBlend) / 255U);
+      drawDotMatrixStringScaled(AA_VOL, plan.unit, plan.numX + plan.numW + plan.unitGap, plan.valY, VOL_ALPHA(scale565(volColor(), unitPct)), AA_LEFT, plan.unitW, plan.scaleStd, plan.unitDotPitch, plan.unitDotR, plan.unitDotGap);
     } else if (mainFontMode == FONT_ORBITRON) {
-      char vs[16]; formatVolNumStr(vs, currentVolume);
-      const char* unit = currentVolUnitLabel();
-      const int16_t UNIT_GAP = useLarge ? 30 : 24;
-      const int16_t UNIT_W   = AAFont_stringWidth(AA_SM, unit) + 8;
-      int16_t numW = AAFont_stringWidthScaled(&Orbitron48AA, vs, scaleOrb);
-      int16_t numX = (SCREEN_W - (numW + UNIT_GAP + UNIT_W)) / 2;
-      AAFont_drawStringScaled(&Orbitron48AA, vs, numX, VAL_Y, VOL_ALPHA(dimC(vCol)), C_BG, scaleOrb, AA_LEFT, numW + 4);
+      drawFixedSlotVolumeString(&Orbitron48AA, true, plan.valueStr, plan.layout, plan.numX, plan.valY, VOL_ALPHA(dimC(vCol)), C_BG, plan.scaleOrb);
       uint8_t unitPct = (uint8_t)(38 + 22U * (255U - mainCalmBlend) / 255U);
-      AAFont_drawString(AA_SM, unit, numX + numW + UNIT_GAP, VAL_Y, VOL_ALPHA(dimC(scale565(volColor(), unitPct))), C_BG, AA_LEFT, UNIT_W);
+      AAFont_drawString(AA_SM, plan.unit, plan.numX + plan.numW + plan.unitGap, plan.valY, VOL_ALPHA(dimC(scale565(volColor(), unitPct))), C_BG, AA_LEFT, plan.unitW);
     } else {
-      char vs[16]; formatVolNumStr(vs, currentVolume);
-      const char* unit = currentVolUnitLabel();
-      const int16_t UNIT_GAP = useLarge ? 22 : 18;
-      const int16_t UNIT_W   = AAFont_stringWidth(AA_SM, unit) + 8;
-      int16_t numW = AAFont_stringWidthScaled(AA_VOL, vs, scaleStd);
-      int16_t numX = (SCREEN_W - (numW + UNIT_GAP + UNIT_W)) / 2;
-      AAFont_drawStringScaled(AA_VOL, vs, numX, VAL_Y, VOL_ALPHA(dimC(vCol)), C_BG, scaleStd, AA_LEFT, numW + 4);
+      drawFixedSlotVolumeString(AA_VOL, false, plan.valueStr, plan.layout, plan.numX, plan.valY, VOL_ALPHA(dimC(vCol)), C_BG, plan.scaleStd);
       uint8_t unitPct = (uint8_t)(38 + 22U * (255U - mainCalmBlend) / 255U);
-      AAFont_drawString(AA_SM, unit, numX + numW + UNIT_GAP, VAL_Y, VOL_ALPHA(dimC(scale565(volColor(), unitPct))), C_BG, AA_LEFT, UNIT_W);
+      AAFont_drawString(AA_SM, plan.unit, plan.numX + plan.numW + plan.unitGap, plan.valY, VOL_ALPHA(dimC(scale565(volColor(), unitPct))), C_BG, AA_LEFT, plan.unitW);
     }
   }
+  AAFont_endBatch();
+  syncPrimaryValueCache(useLarge);
   #undef VOL_ALPHA
 }
 
@@ -1852,6 +2083,7 @@ static void drawSimpleDetailPanel() {
   uint8_t pb = panelBlend;
 
   display.fillRect(0, DP_TOP, SCREEN_W, SCREEN_H - DP_TOP, C_BG);
+  invalidateDetailValueCaches();
 
   if (pb == 0) return;  // Gewist maar niets tekenen
 
@@ -1888,6 +2120,14 @@ static void drawSimpleDetailPanel() {
   AAFont_drawString(AA_XXS, attenStr, DP_VAL_R, DP_ROW1, valC, C_BG, AA_LEFT, 185);
   AAFont_drawString(AA_XXS, "Balance",    DP_LBL_R, DP_ROW2, lblC, C_BG, AA_LEFT, 140);
   AAFont_drawString(AA_XXS, balStr,   DP_VAL_R, DP_ROW2, balC, C_BG, AA_LEFT, 185);
+  strncpy(detailAttenCacheValue, attenStr, sizeof(detailAttenCacheValue) - 1);
+  detailAttenCacheValue[sizeof(detailAttenCacheValue) - 1] = '\0';
+  detailAttenCacheColor = valC;
+  detailAttenCacheValid = true;
+  strncpy(detailBalanceCacheValue, balStr, sizeof(detailBalanceCacheValue) - 1);
+  detailBalanceCacheValue[sizeof(detailBalanceCacheValue) - 1] = '\0';
+  detailBalanceCacheColor = balC;
+  detailBalanceCacheValid = true;
 }
 
 
@@ -1899,10 +2139,19 @@ static void redrawDetailAttenCard() {
 
   char attenStr[14];
   sprintf(attenStr, "%.1f dB", targetEffAttenDb());
+  if (detailAttenCacheValid &&
+      detailAttenCacheColor == valC &&
+      strcmp(detailAttenCacheValue, attenStr) == 0) {
+    return;
+  }
 
   // Wis alleen de waardezone
   display.fillRect(DP_VAL_R - 14, DP_ROW1 - 20, SCREEN_W - (DP_VAL_R - 14) - 4, 24, C_BG);
   AAFont_drawString(AA_XXS, attenStr, DP_VAL_R, DP_ROW1, valC, C_BG, AA_LEFT, 185);
+  strncpy(detailAttenCacheValue, attenStr, sizeof(detailAttenCacheValue) - 1);
+  detailAttenCacheValue[sizeof(detailAttenCacheValue) - 1] = '\0';
+  detailAttenCacheColor = valC;
+  detailAttenCacheValid = true;
 }
 
 static void redrawDetailBalanceCard() {
@@ -1915,10 +2164,19 @@ static void redrawDetailBalanceCard() {
   uint16_t balValColor;
   formatDetailBalance(balStr, sizeof(balStr), &balValColor);
   uint16_t drawCol = (balValColor == C_STATUS_ERR || balValColor == dimC(C_STATUS_ERR)) ? balValColor : valC;
+  if (detailBalanceCacheValid &&
+      detailBalanceCacheColor == drawCol &&
+      strcmp(detailBalanceCacheValue, balStr) == 0) {
+    return;
+  }
 
   // Wis alleen de waardezone
   display.fillRect(DP_VAL_R - 14, DP_ROW2 - 20, SCREEN_W - (DP_VAL_R - 14) - 4, 24, C_BG);
   AAFont_drawString(AA_XXS, balStr, DP_VAL_R, DP_ROW2, drawCol, C_BG, AA_LEFT, 185);
+  strncpy(detailBalanceCacheValue, balStr, sizeof(detailBalanceCacheValue) - 1);
+  detailBalanceCacheValue[sizeof(detailBalanceCacheValue) - 1] = '\0';
+  detailBalanceCacheColor = drawCol;
+  detailBalanceCacheValid = true;
 }
 
 
@@ -1967,20 +2225,47 @@ void drawMainScreen() {
 
 void fadeTransition() {
   if (currentScreen == SCR_BOOT || currentScreen == SCR_WARMUP) return;
-  uint8_t saved = screenBrightness;
-  for (int b = (int)saved; b >= 0; b -= 42) { setScreenBrightness((uint8_t)max(0,b)); drawMainScreen(); delay(20); }
-  setScreenBrightness(0); drawMainScreen(); delay(40);
-  if (!inStandby) setScreenBrightness(saved);  // Bij standby-in: brightness blijft 0, updateDisplay() beheert dit
+  fadeTobrightness(0);  // updateDisplay() voert de fade non-blocking uit
+}
+
+static void markMainDirty(uint8_t flags) {
+  mainDirtyFlags |= flags;
+}
+
+static void flushMainDirty() {
+  if (mainDirtyFlags == 0) return;
+  if (currentScreen != SCR_MAIN || inStandby) {
+    mainDirtyFlags = 0;
+    return;
+  }
+
+  display.startBuffering();
+  if (mainDirtyFlags & DIRTY_MAIN_NAME) drawInputName();
+  if (mainDirtyFlags & DIRTY_MAIN_STATUS) drawMainStatusChips();
+  if (mainDirtyFlags & DIRTY_MAIN_HAIR) drawMainHairline();
+  if (mainDirtyFlags & DIRTY_MAIN_PRIMARY) {
+    if (!redrawMainPrimaryValueIncremental()) {
+      clearPrimaryValueTextArea();
+      drawMainPrimaryValue();
+    }
+  }
+  if ((mainDirtyFlags & DIRTY_MAIN_PANEL) && detailPanelActive()) {
+    drawSimpleDetailPanel();
+  }
+  display.endBuffering();
+  mainDirtyFlags = 0;
 }
 
 static void redrawVolumeZone() {
   if (inStandby) { drawMainScreen(); return; }
   if (volBlinkCount > 0 && !volBlinkOn) return;  // blink is in 'uit'-fase — niet overschrijven
-  display.startBuffering();
-  clearPrimaryValueTextArea();
-  drawMainPrimaryValue();
-  if (detailPanelActive()) redrawDetailAttenCard();
-  display.endBuffering();
+  markMainDirty(DIRTY_MAIN_PRIMARY);
+  flushMainDirty();
+  if (detailPanelActive()) {
+    display.startBuffering();
+    redrawDetailAttenCard();
+    display.endBuffering();
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -3157,24 +3442,31 @@ static void drawSysRow(int16_t y, const char* label, const char* value,
   }
 }
 
-// Systeem toggle-rij: grote knop, dubbele hoogte, label boven waarde onder
-#define SYS_TOG_H (2 * SR_H + SYS_ROW_G)  // 118px — gelijk aan volume menu knoppen
-static void drawSysToggleRow(int16_t y, const char* label, bool enabled) {
-  const int16_t X = 16, W = SCREEN_W - 32;
-  const int16_t PAD = 8;
-  int16_t by = y + PAD, bh = SYS_TOG_H - PAD*2;
-  uint16_t bg  = dimC(VGC_BG_NORM);
-  uint16_t bdr = dimC(VGC_BDR_NORM);  // kader altijd zelfde — drukknop
-  uint16_t lc  = dimC(VGC_LBL_NORM);
-  uint16_t vc  = dimC(VGC_VAL_SEL);   // waarde altijd helder, label zegt wat het is
-  display.fillRoundRect(X, y, W, SYS_TOG_H, UI_CARD_R, bg);
-  display.fillRoundRect(X, by, W, bh, UI_CARD_R, bg);
-  display.drawRoundRect(X,   by,   W,   bh,   UI_CARD_R, bdr);
-  display.drawRoundRect(X+1, by+1, W-2, bh-2, UI_CARD_R, bdr);
-  int16_t lblY = by + bh/3 + 4;
-  int16_t valY = by + bh*2/3 + 8;
-  AAFont_drawString(AA_XXS, label,                   X + UI_PAD_L, lblY, lc, bg, AA_CENTER, W);
-  AAFont_drawString(AA_XXS, enabled ? "on" : "off",  X + UI_PAD_L, valY, vc, bg, AA_CENTER, W);
+static const uint16_t AUTO_STANDBY_OPTIONS_MIN[] = {0, 15, 30, 45, 60, 90, 120};
+
+static const char* autoStandbyLabel(uint16_t minutes) {
+  switch (minutes) {
+    case 0:   return "Off";
+    case 15:  return "15 min";
+    case 30:  return "30 min";
+    case 45:  return "45 min";
+    case 60:  return "60 min";
+    case 90:  return "90 min";
+    case 120: return "120 min";
+    default:  return "60 min";
+  }
+}
+
+static void cycleAutoStandbySetting() {
+  size_t currentIdx = 0;
+  for (size_t i = 0; i < sizeof(AUTO_STANDBY_OPTIONS_MIN) / sizeof(AUTO_STANDBY_OPTIONS_MIN[0]); ++i) {
+    if (AUTO_STANDBY_OPTIONS_MIN[i] == autoStandbyDelayMin) {
+      currentIdx = i;
+      break;
+    }
+  }
+  currentIdx = (currentIdx + 1) % (sizeof(AUTO_STANDBY_OPTIONS_MIN) / sizeof(AUTO_STANDBY_OPTIONS_MIN[0]));
+  autoStandbyDelayMin = AUTO_STANDBY_OPTIONS_MIN[currentIdx];
 }
 
 void drawSystemScreen() {
@@ -3187,36 +3479,50 @@ void drawSystemScreen() {
   // Info rijen bovenaan
   const int16_t SYS_ROW1 = CONT_Y + 4;
   const int16_t SYS_ROW2 = SYS_ROW1 + SR_H + SYS_ROW_G;
-  const int16_t SYS_ROW3 = SYS_ROW2 + SR_H + SYS_ROW_G;
 
   drawSysRow(SYS_ROW1, "Firmware build", FW_VERSION "  " __DATE__ " " __TIME__);
-  drawSysRow(SYS_ROW2, "Boot health", diagBootDegraded ? "Degraded boot detected" : "Normal boot",
-             true, !diagBootDegraded);
-  sprintf(buf, "%u", (unsigned)diagRecoveryAttempts);
-  drawSysRow(SYS_ROW3, "Recovery tries", buf);
+  if (diagBootDegraded) {
+    sprintf(buf, "Degraded boot, %u recovery tries", (unsigned)diagRecoveryAttempts);
+  } else {
+    sprintf(buf, "Normal boot, %u recovery tries", (unsigned)diagRecoveryAttempts);
+  }
+  drawSysRow(SYS_ROW2, "Boot status", buf, true, !diagBootDegraded);
+  // 2x rij knoppen — consistent met overige menu layouts
+  const int16_t SYS_ROW1_N = 2;
+  const int16_t SYS_ROW2_N = 3;
+  const int16_t row1W = menuBtnW(SYS_ROW1_N);
+  const int16_t row2W = menuBtnW(SYS_ROW2_N);
+  const int16_t row2Y = MENU_BTN_Y;
+  const int16_t row1Y = MENU_BTN_Y - MENU_BTN_H - MENU_BTN_GAP;
 
-  // 4 knoppen onderaan
-  const int16_t SYS_N2 = 4;
-  const int16_t sbw = menuBtnW(SYS_N2);
-  drawMenuTogBtn(menuBtnX(0,sbw), MENU_BTN_Y, sbw, MENU_BTN_H, "Warm stby", warmStandbyEnabled ? "Enabled" : "Disabled");
+  drawMenuTogBtn(menuBtnX(0,row1W), row1Y, row1W, MENU_BTN_H,
+                 "Auto stby", autoStandbyLabel(autoStandbyDelayMin),
+                 autoStandbyDelayMin != SETTINGS_DEFAULT.autoStandbyDelayMin);
+  drawMenuTogBtn(menuBtnX(1,row1W), row1Y, row1W, MENU_BTN_H,
+                 "Warm stby", warmStandbyEnabled ? "Enabled" : "Disabled",
+                 warmStandbyEnabled != SETTINGS_DEFAULT.warmStandbyEnabled);
   // Warm trigger: grayed als warm standby niet actief is
   if (warmStandbyEnabled) {
-    drawMenuTogBtn(menuBtnX(1,sbw), MENU_BTN_Y, sbw, MENU_BTN_H, "Warm trig", warmTrigRelayClosed ? "on" : "off");
+    drawMenuTogBtn(menuBtnX(0,row2W), row2Y, row2W, MENU_BTN_H,
+                   "Warm trig", warmTrigRelayClosed ? "on" : "off",
+                   warmTrigRelayClosed != SETTINGS_DEFAULT.warmTrigRelayClosed);
   } else {
-    // Grayed — zelfde stijl als adv.sett. grayed knoppen
-    int16_t bx = menuBtnX(1,sbw), by = MENU_BTN_Y, bh = MENU_BTN_H;
+    int16_t bx = menuBtnX(0,row2W), by = row2Y, bh = MENU_BTN_H;
     uint16_t bg  = dimC(C_CARD_BG);
     uint16_t bdr = dimC(scale565(VGC_BDR_NORM, 50));
     uint16_t lc  = dimC(scale565(VGC_LBL_NORM, 50));
-    display.fillRoundRect(bx, by, sbw, bh, UI_CARD_R, bg);
-    display.drawRoundRect(bx,   by,   sbw,   bh,   UI_CARD_R, bdr);
-    display.drawRoundRect(bx+1, by+1, sbw-2, bh-2, UI_CARD_R, bdr);
+    display.fillRoundRect(bx, by, row2W, bh, UI_CARD_R, bg);
+    display.drawRoundRect(bx,   by,   row2W,   bh,   UI_CARD_R, bdr);
+    display.drawRoundRect(bx+1, by+1, row2W-2, bh-2, UI_CARD_R, bdr);
     int16_t lblY = by + bh/3 + 2, valY = by + bh*2/3 + 8;
-    AAFont_drawString(AA_XXS, "Warm trig", bx, lblY, lc, bg, AA_CENTER, sbw);
-    AAFont_drawString(AA_XXS, warmTrigRelayClosed ? "on" : "off", bx, valY, lc, bg, AA_CENTER, sbw);
+    AAFont_drawString(AA_XXS, "Warm trig", bx, lblY, lc, bg, AA_CENTER, row2W);
+    AAFont_drawString(AA_XXS, warmTrigRelayClosed ? "on" : "off", bx, valY, lc, bg, AA_CENTER, row2W);
   }
-  drawMenuTogBtn(menuBtnX(2,sbw), MENU_BTN_Y, sbw, MENU_BTN_H, "Rem. trigger", remoteTriggerEnabled ? "Enabled" : "Disabled");
-  drawMenuNavBtn(menuBtnX(3,sbw), MENU_BTN_Y, sbw, MENU_BTN_H, "Diagnostics \xBB");
+
+  drawMenuTogBtn(menuBtnX(1,row2W), row2Y, row2W, MENU_BTN_H,
+                 "Rem. trigger", remoteTriggerEnabled ? "Enabled" : "Disabled",
+                 remoteTriggerEnabled != SETTINGS_DEFAULT.remoteTriggerEnabled);
+  drawMenuNavBtn(menuBtnX(2,row2W), row2Y, row2W, MENU_BTN_H, "Diagnostics \xBB");
   display.endBuffering();
 }
 
@@ -3829,6 +4135,13 @@ void updateDisplay() {
     restoreMainDisplay();
   }
 
+  if (!inStandby && currentScreen != SCR_BOOT && currentScreen != SCR_WARMUP
+      && autoStandbyDelayMin > 0 && lastActivityMs > 0
+      && (now - lastActivityMs) >= (uint32_t)autoStandbyDelayMin * 60000UL) {
+    toggleStandby();
+    return;
+  }
+
   if (currentScreen == SCR_MAIN && !mainCalmMode && !inStandby && lastActivityMs > 0
       && screenBrightness == activeBrightness()
       && (now - lastActivityMs) >= profileCalmAfterMs()
@@ -3866,14 +4179,10 @@ void updateDisplay() {
       // zonder dit triggert elke AAFont_drawString-aanroep een losse dsi_lcdDrawImage,
       // wat flicker geeft én de refresh thread (osPriorityHigh) zo vaak wekt dat
       // de main loop te weinig CPU krijgt om de dim-timer te halen.
-      display.startBuffering();
-      drawMainStatusChips();
-      drawMainHairline();
-      if (balShowMs == 0) {
-        drawInputName();
-        drawMainPrimaryValue();
-      }
-      display.endBuffering();
+      uint8_t dirty = DIRTY_MAIN_STATUS | DIRTY_MAIN_HAIR;
+      if (balShowMs == 0) dirty |= DIRTY_MAIN_NAME | DIRTY_MAIN_PRIMARY;
+      markMainDirty(dirty);
+      flushMainDirty();
       // Detailpanel hier nooit per animatieframe hertekenen.
       // Ook in de "terug van calm" fase (mainCalmMode=false, blend nog actief)
       // gaf dat sporadisch knipperen direct na instellingen/wijzigingen.
